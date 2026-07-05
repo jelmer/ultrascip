@@ -68,6 +68,12 @@ struct Args {
     #[arg(long)]
     no_debian_lsp: bool,
 
+    /// Skip the makefile-lsp pass that produces makefile.scip from
+    /// debian/rules. Off by default; the pass is skipped anyway when the
+    /// source tree has no debian/rules.
+    #[arg(long)]
+    no_makefile_lsp: bool,
+
     /// Skip the scip-tree-sitter pass that produces tree-sitter.scip for
     /// files no other indexer covered. Off by default.
     #[arg(long)]
@@ -221,6 +227,9 @@ fn run(args: &Args) -> Result<(), RunError> {
     if !args.no_debian_lsp {
         run_debian_lsp(project.external_path(), &args.output_all)?;
     }
+    if !args.no_makefile_lsp {
+        run_makefile_lsp(project.external_path(), &args.output_all)?;
+    }
     if !args.no_tree_sitter {
         run_tree_sitter(project.external_path(), &args.output_all)?;
     }
@@ -255,6 +264,38 @@ fn run_debian_lsp(source_dir: &Path, output_dir: &Path) -> Result<(), RunError> 
     if !status.success() {
         return Err(RunError::Setup(format!(
             "debian-lsp exited with {}",
+            status
+        )));
+    }
+    Ok(())
+}
+
+/// Run `makefile-lsp scip` on `debian/rules` to produce `makefile.scip`. No-op
+/// when the tree has no `debian/rules` (upstream tarballs, non-Debian
+/// projects); a non-zero exit or missing binary is a hard error.
+fn run_makefile_lsp(source_dir: &Path, output_dir: &Path) -> Result<(), RunError> {
+    let rules = source_dir.join("debian/rules");
+    if !rules.is_file() {
+        log::debug!(
+            "No debian/rules in {}; skipping makefile-lsp",
+            source_dir.display()
+        );
+        return Ok(());
+    }
+    let output = output_dir.join("makefile.scip");
+    log::info!("Generating Makefile SCIP index at {}", output.display());
+    let status = std::process::Command::new("makefile-lsp")
+        .arg("scip")
+        .arg("--project-root")
+        .arg(source_dir)
+        .arg("--output")
+        .arg(&output)
+        .arg(&rules)
+        .status()
+        .map_err(|e| RunError::Setup(format!("failed to run makefile-lsp: {}", e)))?;
+    if !status.success() {
+        return Err(RunError::Setup(format!(
+            "makefile-lsp exited with {}",
             status
         )));
     }
