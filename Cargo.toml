@@ -27,6 +27,7 @@ flate2 = "1"
 scip-c-abi-augment = { path = "scip-c-abi-augment" }
 scip-pyo3-augment = { path = "scip-pyo3-augment" }
 scip-c-python-augment = { path = "scip-c-python-augment" }
+scip-node-addon-augment = { path = "scip-node-addon-augment" }
 anyhow = { workspace = true }
 
 [workspace.dependencies]
@@ -40,4 +41,4 @@ name = "ultrascip"
 path = "src/main.rs"
 
 [workspace]
-members = ["scip-c-abi-augment", "scip-pyo3-augment", "scip-c-python-augment"]
+members = ["scip-c-abi-augment", "scip-pyo3-augment", "scip-c-python-augment", "scip-node-addon-augment"]

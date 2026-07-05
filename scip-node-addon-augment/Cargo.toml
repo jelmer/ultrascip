@@ -1,0 +1,26 @@
+[package]
+name = "scip-node-addon-augment"
+version = "0.1.0"
+edition = "2021"
+description = "Augment a C/C++ SCIP index with JS symbols exposed by Node.js native addons."
+
+[dependencies]
+scip = { workspace = true }
+protobuf = { workspace = true }
+clap = { workspace = true, features = ["derive"] }
+anyhow = { workspace = true }
+tree-sitter = "0.26"
+tree-sitter-c = "0.24"
+tree-sitter-cpp = "0.23"
+walkdir = "2"
+
+[lib]
+name = "scip_node_addon_augment"
+path = "src/lib.rs"
+
+[[bin]]
+name = "scip-node-addon-augment"
+path = "src/main.rs"
+
+[dev-dependencies]
+tempfile = "3"

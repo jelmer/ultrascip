@@ -899,6 +899,43 @@ pub fn run_scip_multi(
                         e
                     ),
                 }
+
+                // A Node.js native addon uses the same C/C++ toolchain, so a
+                // cpp index is also a candidate for a js-node-addon companion:
+                // scan the sources for NAPI_MODULE / NODE_MODULE / Nan /
+                // napi_property_descriptor registrations and emit JS-side
+                // symbols pointing back at the C definitions. Skipped when the
+                // sources have no such registrations or when no JS package
+                // name can be inferred (no package.json).
+                let js_name = index_file_name("js-node-addon", name, &taken);
+                let js_path = output_dir.join(&js_name);
+                let source_root = std::env::current_dir().ok();
+                let opts = scip_node_addon_augment::AugmentOptions {
+                    source_root,
+                    js_package: None,
+                    js_version: None,
+                };
+                match scip_node_addon_augment::augment_file(&dest, &js_path, &opts) {
+                    Ok(scip_node_addon_augment::AugmentOutcome::Written(stats)) => {
+                        taken.insert(js_name.clone());
+                        log::info!(
+                            "Wrote Node addon companion index to {} ({} documents, {} exports)",
+                            js_path.display(),
+                            stats.documents,
+                            stats.exports,
+                        );
+                    }
+                    Ok(scip_node_addon_augment::AugmentOutcome::NoExports) => {
+                        log::debug!(
+                            "No Node addon exports found; skipping Node addon companion index"
+                        );
+                    }
+                    Err(e) => log::warn!(
+                        "Failed to augment {} with Node addon symbols: {}",
+                        dest.display(),
+                        e
+                    ),
+                }
             }
         }
     }
