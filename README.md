@@ -48,11 +48,27 @@ has no CPython entry points, or when no `[project].name` can be read from a
 Gradle indexing currently fails on Debian: `scip-java`'s init script uses
 Gradle 4.9+ APIs but Debian ships 4.4.1. Maven works.
 
+## Post-indexing passes
+
+After the language indexers, two host-side tools run against the source tree:
+
+- `debian-lsp scip` writes `debian.scip` covering the Debian packaging files
+  (`debian/control`, `debian/rules`, ...). Skipped for trees with no
+  `debian/` subdirectory. Disable with `--no-debian-lsp`.
+- `scip-tree-sitter` writes `tree-sitter.scip` with syntax-highlighting
+  tokens for files no language indexer covered, deferring to every other
+  `.scip` in the output directory via `--exclude-scip`. Disable with
+  `--no-tree-sitter`.
+
+Both are best-effort: if the tool is missing or fails, a warning is logged
+and the pass is skipped.
+
 ## Usage
 
 ```
 ultrascip --output-all OUT_DIR --session SESSION [--directory DIR]
-          [--apt-build-deps] [--offline] [--debug]
+          [--apt-build-deps] [--offline] [--no-debian-lsp]
+          [--no-tree-sitter] [--debug]
 ```
 
 Options:
@@ -68,6 +84,8 @@ Options:
 - `--offline` — isolate the session from the network. Off by default; most
   indexers need the network to install build deps, download release binaries,
   or resolve package registries.
+- `--no-debian-lsp` — skip the `debian-lsp scip` pass.
+- `--no-tree-sitter` — skip the `scip-tree-sitter` pass.
 - `--debug` — verbose logging.
 
 Indexing is best-effort: a failure for one build system does not discard the
