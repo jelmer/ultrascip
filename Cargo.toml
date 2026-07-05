@@ -26,6 +26,7 @@ flate2 = "1"
 # workspace, so it always matches the CLI binary the user could invoke by hand.
 scip-c-abi-augment = { path = "scip-c-abi-augment" }
 scip-pyo3-augment = { path = "scip-pyo3-augment" }
+scip-c-python-augment = { path = "scip-c-python-augment" }
 anyhow = { workspace = true }
 
 [workspace.dependencies]
@@ -39,4 +40,4 @@ name = "ultrascip"
 path = "src/main.rs"
 
 [workspace]
-members = ["scip-c-abi-augment", "scip-pyo3-augment"]
+members = ["scip-c-abi-augment", "scip-pyo3-augment", "scip-c-python-augment"]

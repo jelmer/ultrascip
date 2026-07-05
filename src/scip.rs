@@ -862,6 +862,44 @@ pub fn run_scip_multi(
                     ),
                 }
             }
+
+            // For a C/C++ index, emit a python-cpython companion when the
+            // sources include CPython extension entry points (PyMethodDef /
+            // PyModuleDef / PyInit_*). A downstream Python indexer resolves
+            // imports into the C definitions. Skipped when the sources have
+            // no such entry points or when no Python package name can be
+            // inferred (no pyproject.toml).
+            if *language == "cpp" {
+                let py_name = index_file_name("python-cpython", name, &taken);
+                let py_path = output_dir.join(&py_name);
+                let source_root = std::env::current_dir().ok();
+                let opts = scip_c_python_augment::AugmentOptions {
+                    source_root,
+                    python_package: None,
+                    python_version: None,
+                };
+                match scip_c_python_augment::augment_file(&dest, &py_path, &opts) {
+                    Ok(scip_c_python_augment::AugmentOutcome::Written(stats)) => {
+                        taken.insert(py_name.clone());
+                        log::info!(
+                            "Wrote CPython companion index to {} ({} documents, {} exports)",
+                            py_path.display(),
+                            stats.documents,
+                            stats.exports,
+                        );
+                    }
+                    Ok(scip_c_python_augment::AugmentOutcome::NoExports) => {
+                        log::debug!(
+                            "No CPython extension exports found; skipping CPython companion index"
+                        );
+                    }
+                    Err(e) => log::warn!(
+                        "Failed to augment {} with CPython symbols: {}",
+                        dest.display(),
+                        e
+                    ),
+                }
+            }
         }
     }
 

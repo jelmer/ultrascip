@@ -37,6 +37,14 @@ for each export so a downstream Python indexer resolves imports into the Rust
 definitions. Produced by the workspace's `scip-pyo3-augment` binary, also
 usable standalone. Skipped silently when the source has no PyO3 items.
 
+C/C++ projects that ship a CPython extension module (`PyMethodDef`,
+`PyModuleDef`, `PyInit_*`) get a companion `python-cpython.scip` written
+alongside `cpp.scip`. It carries Python-side symbols for each exported
+function so a downstream Python indexer resolves imports into the C
+definitions. Produced by `scip-c-python-augment`. Skipped when the source
+has no CPython entry points, or when no `[project].name` can be read from a
+`pyproject.toml`.
+
 Gradle indexing currently fails on Debian: `scip-java`'s init script uses
 Gradle 4.9+ APIs but Debian ships 4.4.1. Maven works.
 

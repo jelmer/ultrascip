@@ -1,0 +1,25 @@
+[package]
+name = "scip-c-python-augment"
+version = "0.1.0"
+edition = "2021"
+description = "Augment a C SCIP index with Python symbols exposed by CPython C extension modules."
+
+[dependencies]
+scip = { workspace = true }
+protobuf = { workspace = true }
+clap = { workspace = true, features = ["derive"] }
+anyhow = { workspace = true }
+tree-sitter = "0.26"
+tree-sitter-c = "0.24"
+walkdir = "2"
+
+[lib]
+name = "scip_c_python_augment"
+path = "src/lib.rs"
+
+[[bin]]
+name = "scip-c-python-augment"
+path = "src/main.rs"
+
+[dev-dependencies]
+tempfile = "3"
