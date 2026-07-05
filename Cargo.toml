@@ -25,6 +25,7 @@ flate2 = "1"
 # In-process augmentation of the Rust SCIP index with C ABI symbols. Same
 # workspace, so it always matches the CLI binary the user could invoke by hand.
 scip-c-abi-augment = { path = "scip-c-abi-augment" }
+scip-pyo3-augment = { path = "scip-pyo3-augment" }
 anyhow = { workspace = true }
 
 [workspace.dependencies]
@@ -38,4 +39,4 @@ name = "ultrascip"
 path = "src/main.rs"
 
 [workspace]
-members = ["scip-c-abi-augment"]
+members = ["scip-c-abi-augment", "scip-pyo3-augment"]

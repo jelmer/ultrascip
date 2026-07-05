@@ -30,6 +30,13 @@ symbols for each export so a downstream C indexer can cross-reference into the
 Rust definitions. The companion is produced by the workspace's
 `scip-c-abi-augment` binary, which is also usable standalone.
 
+Rust crates that expose Python bindings via PyO3 (`#[pyfunction]`,
+`#[pymodule]`, `#[pyclass]`, `#[pymethods]`) get a companion
+`python-pyo3.scip` written alongside `rust.scip`, carrying Python-side symbols
+for each export so a downstream Python indexer resolves imports into the Rust
+definitions. Produced by the workspace's `scip-pyo3-augment` binary, also
+usable standalone. Skipped silently when the source has no PyO3 items.
+
 Gradle indexing currently fails on Debian: `scip-java`'s init script uses
 Gradle 4.9+ APIs but Debian ships 4.4.1. Maven works.
 

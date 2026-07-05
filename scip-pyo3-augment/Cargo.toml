@@ -1,0 +1,25 @@
+[package]
+name = "scip-pyo3-augment"
+version = "0.1.0"
+edition = "2021"
+description = "Augment a Rust SCIP index with Python symbols exposed via PyO3."
+
+[dependencies]
+scip = { workspace = true }
+protobuf = { workspace = true }
+clap = { workspace = true, features = ["derive"] }
+anyhow = { workspace = true }
+syn = { version = "2", features = ["full", "extra-traits", "visit"] }
+proc-macro2 = { version = "1", features = ["span-locations"] }
+walkdir = "2"
+
+[lib]
+name = "scip_pyo3_augment"
+path = "src/lib.rs"
+
+[[bin]]
+name = "scip-pyo3-augment"
+path = "src/main.rs"
+
+[dev-dependencies]
+tempfile = "3"

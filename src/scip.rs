@@ -800,11 +800,19 @@ pub fn run_scip_multi(
                 ))
             })?;
 
-            // For a rust-analyzer index, emit a companion SCIP index that
-            // adds C ABI symbols for every #[no_mangle] / extern "C" export,
-            // so a downstream C indexer can cross-reference into the Rust
-            // definitions. Best-effort: a failure here does not discard the
-            // Rust index we just wrote, we just log and carry on.
+            // For a rust-analyzer index, emit two companion SCIP indexes:
+            //
+            //   - rust-c-abi.scip: C ABI symbols for every #[no_mangle] /
+            //     extern "C" export, so a downstream C indexer can
+            //     cross-reference into the Rust definitions.
+            //
+            //   - python-pyo3.scip: Python symbols for every #[pyfunction],
+            //     #[pymodule], #[pyclass] and #[pymethods] item, so a
+            //     downstream Python indexer resolves imports into the Rust
+            //     definitions. Skipped when the source has no PyO3 items.
+            //
+            // Both are best-effort: a failure here does not discard the Rust
+            // index we just wrote, we just log and carry on.
             if *language == "rust" {
                 let companion = index_file_name("rust-c-abi", name, &taken);
                 taken.insert(companion.clone());
@@ -818,6 +826,37 @@ pub fn run_scip_multi(
                     ),
                     Err(e) => log::warn!(
                         "Failed to augment {} with C ABI symbols: {}",
+                        dest.display(),
+                        e
+                    ),
+                }
+
+                let py_name = index_file_name("python-pyo3", name, &taken);
+                let py_path = output_dir.join(&py_name);
+                // The source lives at the host working directory: main.rs
+                // set_current_dir'd to project.external_path() before
+                // dispatching to us.
+                let source_root = std::env::current_dir().ok();
+                let opts = scip_pyo3_augment::AugmentOptions {
+                    source_root,
+                    python_package: None,
+                    python_version: None,
+                };
+                match scip_pyo3_augment::augment_file(&dest, &py_path, &opts) {
+                    Ok(scip_pyo3_augment::AugmentOutcome::Written(stats)) => {
+                        taken.insert(py_name.clone());
+                        log::info!(
+                            "Wrote PyO3 companion index to {} ({} documents, {} exports)",
+                            py_path.display(),
+                            stats.documents,
+                            stats.exports,
+                        );
+                    }
+                    Ok(scip_pyo3_augment::AugmentOutcome::NoExports) => {
+                        log::debug!("No PyO3 exports found; skipping PyO3 companion index");
+                    }
+                    Err(e) => log::warn!(
+                        "Failed to augment {} with PyO3 symbols: {}",
                         dest.display(),
                         e
                     ),

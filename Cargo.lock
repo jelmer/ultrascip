@@ -2859,6 +2859,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "scip-pyo3-augment"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "proc-macro2",
+ "protobuf",
+ "scip",
+ "syn 2.0.118",
+ "tempfile",
+ "walkdir",
+]
+
+[[package]]
 name = "scopeguard"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3518,6 +3532,7 @@ dependencies = [
  "ognibuild",
  "reqwest",
  "scip-c-abi-augment",
+ "scip-pyo3-augment",
  "serde_json",
  "tar",
 ]
