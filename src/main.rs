@@ -74,10 +74,25 @@ struct Args {
     #[arg(long)]
     no_makefile_lsp: bool,
 
+    /// Skip the scip-shell pass that produces shell.scip from shell scripts
+    /// in the source tree. Off by default.
+    #[arg(long)]
+    no_shell: bool,
+
     /// Skip the scip-tree-sitter pass that produces tree-sitter.scip for
     /// files no other indexer covered. Off by default.
     #[arg(long)]
     no_tree_sitter: bool,
+
+    /// Package name to record in scip-shell's emitted symbols. Optional; when
+    /// unset, scip-shell falls back to its default ("shell-project").
+    #[arg(long)]
+    package_name: Option<String>,
+
+    /// Package version to record in scip-shell's emitted symbols. Optional;
+    /// when unset, scip-shell falls back to its default ("0.0.0").
+    #[arg(long)]
+    package_version: Option<String>,
 
     /// Print verbose output.
     #[arg(long)]
@@ -230,6 +245,14 @@ fn run(args: &Args) -> Result<(), RunError> {
     if !args.no_makefile_lsp {
         run_makefile_lsp(project.external_path(), &args.output_all)?;
     }
+    if !args.no_shell {
+        run_shell(
+            project.external_path(),
+            &args.output_all,
+            args.package_name.as_deref(),
+            args.package_version.as_deref(),
+        )?;
+    }
     if !args.no_tree_sitter {
         run_tree_sitter(project.external_path(), &args.output_all)?;
     }
@@ -296,6 +319,39 @@ fn run_makefile_lsp(source_dir: &Path, output_dir: &Path) -> Result<(), RunError
     if !status.success() {
         return Err(RunError::Setup(format!(
             "makefile-lsp exited with {}",
+            status
+        )));
+    }
+    Ok(())
+}
+
+/// Run `scip-shell` on the source tree to produce `shell.scip`. Runs before
+/// the tree-sitter pass so its richer tokens win for shell files. A non-zero
+/// exit or missing binary is a hard error.
+fn run_shell(
+    source_dir: &Path,
+    output_dir: &Path,
+    package_name: Option<&str>,
+    package_version: Option<&str>,
+) -> Result<(), RunError> {
+    let output = output_dir.join("shell.scip");
+    log::info!("Generating shell SCIP index at {}", output.display());
+    let mut cmd = std::process::Command::new("scip-shell");
+    cmd.arg("--project-root").arg(source_dir);
+    cmd.arg("--output").arg(&output);
+    if let Some(name) = package_name {
+        cmd.arg("--package-name").arg(name);
+    }
+    if let Some(version) = package_version {
+        cmd.arg("--package-version").arg(version);
+    }
+    cmd.arg(source_dir);
+    let status = cmd
+        .status()
+        .map_err(|e| RunError::Setup(format!("failed to run scip-shell: {}", e)))?;
+    if !status.success() {
+        return Err(RunError::Setup(format!(
+            "scip-shell exited with {}",
             status
         )));
     }
