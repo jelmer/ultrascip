@@ -1,0 +1,19 @@
+[package]
+name = "scip-c-abi-augment"
+version = "0.1.0"
+edition = "2021"
+description = "Augment a Rust SCIP index with C ABI symbols for #[no_mangle] / extern \"C\" exports."
+
+[dependencies]
+scip = { workspace = true }
+protobuf = { workspace = true }
+clap = { workspace = true, features = ["derive"] }
+anyhow = { workspace = true }
+
+[lib]
+name = "scip_c_abi_augment"
+path = "src/lib.rs"
+
+[[bin]]
+name = "scip-c-abi-augment"
+path = "src/main.rs"

@@ -799,6 +799,30 @@ pub fn run_scip_multi(
                     e
                 ))
             })?;
+
+            // For a rust-analyzer index, emit a companion SCIP index that
+            // adds C ABI symbols for every #[no_mangle] / extern "C" export,
+            // so a downstream C indexer can cross-reference into the Rust
+            // definitions. Best-effort: a failure here does not discard the
+            // Rust index we just wrote, we just log and carry on.
+            if *language == "rust" {
+                let companion = index_file_name("rust-c-abi", name, &taken);
+                taken.insert(companion.clone());
+                let companion_path = output_dir.join(&companion);
+                match scip_c_abi_augment::augment_file(&dest, &companion_path) {
+                    Ok(stats) => log::info!(
+                        "Wrote C ABI companion index to {} ({} documents, {} exports)",
+                        companion_path.display(),
+                        stats.documents,
+                        stats.exports,
+                    ),
+                    Err(e) => log::warn!(
+                        "Failed to augment {} with C ABI symbols: {}",
+                        dest.display(),
+                        e
+                    ),
+                }
+            }
         }
     }
 

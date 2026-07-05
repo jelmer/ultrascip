@@ -24,6 +24,12 @@ When two build systems in a project map to the same language, the output file
 is disambiguated by appending the build system name (e.g. `cpp-meson.scip`
 alongside `cpp.scip`).
 
+Rust crates that expose a C ABI (`#[no_mangle]`, `pub extern "C" fn`) get a
+companion `rust-c-abi.scip` written alongside `rust.scip`. It carries C-side
+symbols for each export so a downstream C indexer can cross-reference into the
+Rust definitions. The companion is produced by the workspace's
+`scip-c-abi-augment` binary, which is also usable standalone.
+
 Gradle indexing currently fails on Debian: `scip-java`'s init script uses
 Gradle 4.9+ APIs but Debian ships 4.4.1. Maven works.
 
