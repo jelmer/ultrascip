@@ -60,8 +60,9 @@ After the language indexers, two host-side tools run against the source tree:
   `.scip` in the output directory via `--exclude-scip`. Disable with
   `--no-tree-sitter`.
 
-Both are best-effort: if the tool is missing or fails, a warning is logged
-and the pass is skipped.
+Both are required: if the tool is missing on `PATH` or exits non-zero, the
+run fails. Pass `--no-debian-lsp` / `--no-tree-sitter` to skip a pass on
+purpose.
 
 ## Usage
 

@@ -206,10 +206,10 @@ fn run(args: &Args) -> Result<(), RunError> {
 
     let bss_refs: Vec<&dyn ognibuild::buildsystem::BuildSystem> =
         bss.iter().map(|bs| bs.as_ref()).collect();
-    // Preserve the run_scip_multi error, if any: successful indexes have already
-    // been written, and debian-lsp / scip-tree-sitter run against the source
-    // tree host-side and don't depend on those indexers succeeding. The saved
-    // error is returned at the end so the caller still exits non-zero.
+    // Keep the run_scip_multi error, if any, but still run the post-passes:
+    // debian.scip and tree-sitter.scip stand on their own and remain useful
+    // even if some language indexer failed. The saved error is returned at
+    // the end when nothing else failed harder first.
     let indexer_result = scip::run_scip_multi(
         session.as_ref(),
         &bss_refs,
@@ -219,10 +219,10 @@ fn run(args: &Args) -> Result<(), RunError> {
     );
 
     if !args.no_debian_lsp {
-        run_debian_lsp(project.external_path(), &args.output_all);
+        run_debian_lsp(project.external_path(), &args.output_all)?;
     }
     if !args.no_tree_sitter {
-        run_tree_sitter(project.external_path(), &args.output_all);
+        run_tree_sitter(project.external_path(), &args.output_all)?;
     }
 
     indexer_result?;
@@ -231,14 +231,14 @@ fn run(args: &Args) -> Result<(), RunError> {
 
 /// Run `debian-lsp scip` on the source tree to produce `debian.scip`. No-op
 /// when the tree has no `debian/` subdirectory (upstream tarballs, non-Debian
-/// projects). Best-effort: a failure logs a warning and does not fail the run.
-fn run_debian_lsp(source_dir: &Path, output_dir: &Path) {
+/// projects); a non-zero exit or missing binary is a hard error.
+fn run_debian_lsp(source_dir: &Path, output_dir: &Path) -> Result<(), RunError> {
     if !source_dir.join("debian").is_dir() {
         log::debug!(
             "No debian/ in {}; skipping debian-lsp",
             source_dir.display()
         );
-        return;
+        return Ok(());
     }
     let output = output_dir.join("debian.scip");
     log::info!(
@@ -250,19 +250,22 @@ fn run_debian_lsp(source_dir: &Path, output_dir: &Path) {
         .arg("--output")
         .arg(&output)
         .arg(source_dir)
-        .status();
-    match status {
-        Ok(s) if s.success() => {}
-        Ok(s) => log::warn!("debian-lsp exited with {}", s),
-        Err(e) => log::warn!("Failed to run debian-lsp: {}", e),
+        .status()
+        .map_err(|e| RunError::Setup(format!("failed to run debian-lsp: {}", e)))?;
+    if !status.success() {
+        return Err(RunError::Setup(format!(
+            "debian-lsp exited with {}",
+            status
+        )));
     }
+    Ok(())
 }
 
 /// Run `scip-tree-sitter` to produce `tree-sitter.scip`, covering files no
 /// language indexer touched. Passes every other `.scip` in `output_dir` as
-/// `--exclude-scip` so the tree-sitter pass defers to their richer tokens.
-/// Best-effort: a failure logs a warning and does not fail the run.
-fn run_tree_sitter(source_dir: &Path, output_dir: &Path) {
+/// `--exclude-scip` so the tree-sitter pass defers to their richer tokens. A
+/// non-zero exit or missing binary is a hard error.
+fn run_tree_sitter(source_dir: &Path, output_dir: &Path) -> Result<(), RunError> {
     let output = output_dir.join("tree-sitter.scip");
     let mut cmd = std::process::Command::new("scip-tree-sitter");
     cmd.arg("--root").arg(source_dir);
@@ -282,11 +285,16 @@ fn run_tree_sitter(source_dir: &Path, output_dir: &Path) {
         "Generating tree-sitter syntax SCIP index at {}",
         output.display()
     );
-    match cmd.status() {
-        Ok(s) if s.success() => {}
-        Ok(s) => log::warn!("scip-tree-sitter exited with {}", s),
-        Err(e) => log::warn!("Failed to run scip-tree-sitter: {}", e),
+    let status = cmd
+        .status()
+        .map_err(|e| RunError::Setup(format!("failed to run scip-tree-sitter: {}", e)))?;
+    if !status.success() {
+        return Err(RunError::Setup(format!(
+            "scip-tree-sitter exited with {}",
+            status
+        )));
     }
+    Ok(())
 }
 
 /// Install the Debian source package's Build-Depends inside the session, from
