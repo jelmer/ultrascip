@@ -1,0 +1,28 @@
+[package]
+name = "ultrascip"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# ognibuild does the heavy lifting: build-system detection, per-language
+# indexer dispatch (run_scip_multi), installer resolution, BuildFixer retries,
+# and release-binary downloads for scip-clang/scip-go/scip-java.
+#
+# Pinned to the same git revision the container's ogni binary is built from, so
+# both agree on Cargo.lock and behave identically. The debian feature enables
+# apt-based install-on-demand and satisfy_build_deps_from_control, which
+# --apt-build-deps needs.
+ognibuild = { git = "https://github.com/jelmer/ognibuild.git", default-features = false, features = ["debian"] }
+clap = { version = "4", features = ["derive"] }
+env_logger = "0.11"
+log = "0.4"
+# Used by the inlined SCIP orchestrator (copied verbatim from
+# ognibuild/src/actions/scip.rs). Version ranges match ognibuild's own.
+reqwest = { version = ">=0.12.10, <0.14", features = ["blocking", "json"] }
+serde_json = "1"
+tar = "0.4"
+flate2 = "1"
+
+[[bin]]
+name = "ultrascip"
+path = "src/main.rs"
