@@ -3,10 +3,10 @@
 //! Parses each `.c` file with tree-sitter-c and extracts three things:
 //!
 //! * `static PyMethodDef <arr>[] = { { "<pyname>", (PyCFunction)<c_fn>, ... }, ... };`
-//!   — each entry maps a Python name to a C function.
+//!   -- each entry maps a Python name to a C function.
 //! * `static struct PyModuleDef <var> = { HEAD, "<modname>", ..., <methods_arr>, ... };`
-//!   — the module's Python name and the `PyMethodDef` array it wires up.
-//! * `PyMODINIT_FUNC PyInit_<modname>(void) { ... }` — fallback for the
+//!   -- the module's Python name and the `PyMethodDef` array it wires up.
+//! * `PyMODINIT_FUNC PyInit_<modname>(void) { ... }` -- fallback for the
 //!   Python module name if the `PyModuleDef` initializer doesn't include a
 //!   string literal (rare, but happens when `m_name` is set later).
 //!
@@ -29,7 +29,7 @@ pub struct CExport {
     /// C function identifier the initializer casts to `PyCFunction`.
     pub c_name: String,
     pub kind: CExportKind,
-    /// Zero-based `(line, start_col, end_col)` — the range of the string
+    /// Zero-based `(line, start_col, end_col)` -- the range of the string
     /// literal (without quotes) inside the `PyMethodDef` entry, or the
     /// identifier's range for module exports.
     pub name_span: (u32, u32, u32),
@@ -49,7 +49,7 @@ pub struct ScanResult {
 pub fn scan_file(path: &Path, source_root: &Path, out: &mut ScanResult) -> Result<()> {
     let text = fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
 
-    // Cheap prefilter — files with no CPython entry points are the vast
+    // Cheap prefilter -- files with no CPython entry points are the vast
     // majority in most trees.
     if !text.contains("PyMethodDef") && !text.contains("PyModuleDef") && !text.contains("PyInit_") {
         return Ok(());
@@ -308,7 +308,7 @@ fn parse_method_entry(entry: Node, src: &[u8]) -> Option<PyMethodEntry> {
 }
 
 fn cast_target_ident(cast: Node, src: &[u8]) -> Option<String> {
-    // cast_expression: ( type ) expr — the expr is the last child.
+    // cast_expression: ( type ) expr -- the expr is the last child.
     let mut last_ident = None;
     let mut walker = cast.walk();
     for c in cast.children(&mut walker) {
