@@ -701,6 +701,46 @@ fn index_file_name(language: &str, buildsystem: &str, taken: &HashSet<String>) -
     format!("{}-{}.scip", language, buildsystem)
 }
 
+/// Write one FFI companion index into `output_dir`, named via
+/// [`index_file_name`]. `augment` receives the output path and returns
+/// `Some((documents, exports))` when a companion was written, or `None` when
+/// the sources had no matching bindings. Companions are best-effort: a
+/// failure is logged and does not discard the main index.
+fn write_companion(
+    output_dir: &Path,
+    language: &str,
+    buildsystem: &str,
+    taken: &mut HashSet<String>,
+    what: &str,
+    augment: impl FnOnce(&Path) -> anyhow::Result<Option<(usize, usize)>>,
+) {
+    let file_name = index_file_name(language, buildsystem, taken);
+    let path = output_dir.join(&file_name);
+    match augment(&path) {
+        Ok(Some((documents, exports))) => {
+            taken.insert(file_name);
+            log::info!(
+                "Wrote {} companion index to {} ({} documents, {} exports)",
+                what,
+                path.display(),
+                documents,
+                exports,
+            );
+        }
+        Ok(None) => {
+            log::debug!("No {} exports found; skipping companion index", what);
+        }
+        Err(e) => {
+            log::warn!(
+                "Failed to write {} companion index {}: {}",
+                what,
+                path.display(),
+                e
+            );
+        }
+    }
+}
+
 /// Generate one SCIP index file per detected build system.
 ///
 /// Unlike [`run_scip`], which stops after the first build system with a known
@@ -814,53 +854,41 @@ pub fn run_scip_multi(
             // Both are best-effort: a failure here does not discard the Rust
             // index we just wrote, we just log and carry on.
             if *language == "rust" {
-                let companion = index_file_name("rust-c-abi", name, &taken);
-                taken.insert(companion.clone());
-                let companion_path = output_dir.join(&companion);
-                match scip_c_abi_augment::augment_file(&dest, &companion_path) {
-                    Ok(stats) => log::info!(
-                        "Wrote C ABI companion index to {} ({} documents, {} exports)",
-                        companion_path.display(),
-                        stats.documents,
-                        stats.exports,
-                    ),
-                    Err(e) => log::warn!(
-                        "Failed to augment {} with C ABI symbols: {}",
-                        dest.display(),
-                        e
-                    ),
-                }
+                write_companion(
+                    output_dir,
+                    "rust-c-abi",
+                    name,
+                    &mut taken,
+                    "C ABI",
+                    |path| {
+                        scip_c_abi_augment::augment_file(&dest, path)
+                            .map(|stats| Some((stats.documents, stats.exports)))
+                    },
+                );
 
-                let py_name = index_file_name("python-pyo3", name, &taken);
-                let py_path = output_dir.join(&py_name);
                 // The source lives at the host working directory: main.rs
                 // set_current_dir'd to project.external_path() before
                 // dispatching to us.
-                let source_root = std::env::current_dir().ok();
-                let opts = scip_pyo3_augment::AugmentOptions {
-                    source_root,
-                    python_package: None,
-                    python_version: None,
-                };
-                match scip_pyo3_augment::augment_file(&dest, &py_path, &opts) {
-                    Ok(scip_pyo3_augment::AugmentOutcome::Written(stats)) => {
-                        taken.insert(py_name.clone());
-                        log::info!(
-                            "Wrote PyO3 companion index to {} ({} documents, {} exports)",
-                            py_path.display(),
-                            stats.documents,
-                            stats.exports,
-                        );
-                    }
-                    Ok(scip_pyo3_augment::AugmentOutcome::NoExports) => {
-                        log::debug!("No PyO3 exports found; skipping PyO3 companion index");
-                    }
-                    Err(e) => log::warn!(
-                        "Failed to augment {} with PyO3 symbols: {}",
-                        dest.display(),
-                        e
-                    ),
-                }
+                write_companion(
+                    output_dir,
+                    "python-pyo3",
+                    name,
+                    &mut taken,
+                    "PyO3",
+                    |path| {
+                        let opts = scip_pyo3_augment::AugmentOptions {
+                            source_root: std::env::current_dir().ok(),
+                            python_package: None,
+                            python_version: None,
+                        };
+                        Ok(match scip_pyo3_augment::augment_file(&dest, path, &opts)? {
+                            scip_pyo3_augment::AugmentOutcome::Written(stats) => {
+                                Some((stats.documents, stats.exports))
+                            }
+                            scip_pyo3_augment::AugmentOutcome::NoExports => None,
+                        })
+                    },
+                );
             }
 
             // For a C/C++ index, emit a python-cpython companion when the
@@ -870,35 +898,28 @@ pub fn run_scip_multi(
             // no such entry points or when no Python package name can be
             // inferred (no pyproject.toml).
             if *language == "cpp" {
-                let py_name = index_file_name("python-cpython", name, &taken);
-                let py_path = output_dir.join(&py_name);
-                let source_root = std::env::current_dir().ok();
-                let opts = scip_c_python_augment::AugmentOptions {
-                    source_root,
-                    python_package: None,
-                    python_version: None,
-                };
-                match scip_c_python_augment::augment_file(&dest, &py_path, &opts) {
-                    Ok(scip_c_python_augment::AugmentOutcome::Written(stats)) => {
-                        taken.insert(py_name.clone());
-                        log::info!(
-                            "Wrote CPython companion index to {} ({} documents, {} exports)",
-                            py_path.display(),
-                            stats.documents,
-                            stats.exports,
-                        );
-                    }
-                    Ok(scip_c_python_augment::AugmentOutcome::NoExports) => {
-                        log::debug!(
-                            "No CPython extension exports found; skipping CPython companion index"
-                        );
-                    }
-                    Err(e) => log::warn!(
-                        "Failed to augment {} with CPython symbols: {}",
-                        dest.display(),
-                        e
-                    ),
-                }
+                write_companion(
+                    output_dir,
+                    "python-cpython",
+                    name,
+                    &mut taken,
+                    "CPython",
+                    |path| {
+                        let opts = scip_c_python_augment::AugmentOptions {
+                            source_root: std::env::current_dir().ok(),
+                            python_package: None,
+                            python_version: None,
+                        };
+                        Ok(
+                            match scip_c_python_augment::augment_file(&dest, path, &opts)? {
+                                scip_c_python_augment::AugmentOutcome::Written(stats) => {
+                                    Some((stats.documents, stats.exports))
+                                }
+                                scip_c_python_augment::AugmentOutcome::NoExports => None,
+                            },
+                        )
+                    },
+                );
 
                 // A Node.js native addon uses the same C/C++ toolchain, so a
                 // cpp index is also a candidate for a js-node-addon companion:
@@ -907,35 +928,28 @@ pub fn run_scip_multi(
                 // symbols pointing back at the C definitions. Skipped when the
                 // sources have no such registrations or when no JS package
                 // name can be inferred (no package.json).
-                let js_name = index_file_name("js-node-addon", name, &taken);
-                let js_path = output_dir.join(&js_name);
-                let source_root = std::env::current_dir().ok();
-                let opts = scip_node_addon_augment::AugmentOptions {
-                    source_root,
-                    js_package: None,
-                    js_version: None,
-                };
-                match scip_node_addon_augment::augment_file(&dest, &js_path, &opts) {
-                    Ok(scip_node_addon_augment::AugmentOutcome::Written(stats)) => {
-                        taken.insert(js_name.clone());
-                        log::info!(
-                            "Wrote Node addon companion index to {} ({} documents, {} exports)",
-                            js_path.display(),
-                            stats.documents,
-                            stats.exports,
-                        );
-                    }
-                    Ok(scip_node_addon_augment::AugmentOutcome::NoExports) => {
-                        log::debug!(
-                            "No Node addon exports found; skipping Node addon companion index"
-                        );
-                    }
-                    Err(e) => log::warn!(
-                        "Failed to augment {} with Node addon symbols: {}",
-                        dest.display(),
-                        e
-                    ),
-                }
+                write_companion(
+                    output_dir,
+                    "js-node-addon",
+                    name,
+                    &mut taken,
+                    "Node addon",
+                    |path| {
+                        let opts = scip_node_addon_augment::AugmentOptions {
+                            source_root: std::env::current_dir().ok(),
+                            js_package: None,
+                            js_version: None,
+                        };
+                        Ok(
+                            match scip_node_addon_augment::augment_file(&dest, path, &opts)? {
+                                scip_node_addon_augment::AugmentOutcome::Written(stats) => {
+                                    Some((stats.documents, stats.exports))
+                                }
+                                scip_node_addon_augment::AugmentOutcome::NoExports => None,
+                            },
+                        )
+                    },
+                );
             }
         }
     }
