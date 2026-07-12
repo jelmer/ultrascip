@@ -2888,6 +2888,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "scip-jni-augment"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "protobuf",
+ "scip",
+ "tempfile",
+ "tree-sitter",
+ "tree-sitter-c",
+ "tree-sitter-cpp",
+ "walkdir",
+]
+
+[[package]]
 name = "scip-node-addon-augment"
 version = "0.1.0"
 dependencies = [
@@ -3625,6 +3640,7 @@ dependencies = [
  "scip-c-abi-augment",
  "scip-c-python-augment",
  "scip-c-ruby-augment",
+ "scip-jni-augment",
  "scip-node-addon-augment",
  "scip-pyo3-augment",
  "serde_json",

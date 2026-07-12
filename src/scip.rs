@@ -978,6 +978,23 @@ pub fn run_scip_multi(
                         )
                     },
                 );
+
+                // And for JNI: mangled Java_* exports and RegisterNatives
+                // tables become Java-side symbols pointing back at the C
+                // definitions. Skipped when the sources have no JNI exports.
+                write_companion(output_dir, "java-jni", name, &mut taken, "JNI", |path| {
+                    let opts = scip_jni_augment::AugmentOptions {
+                        source_root: std::env::current_dir().ok(),
+                        java_package: None,
+                        java_version: None,
+                    };
+                    Ok(match scip_jni_augment::augment_file(&dest, path, &opts)? {
+                        scip_jni_augment::AugmentOutcome::Written(stats) => {
+                            Some((stats.documents, stats.exports))
+                        }
+                        scip_jni_augment::AugmentOutcome::NoExports => None,
+                    })
+                });
             }
         }
     }
