@@ -50,13 +50,15 @@ Gradle 4.9+ APIs but Debian ships 4.4.1. Maven works.
 
 After the language indexers, two host-side tools run against the source tree:
 
-- `debian-lsp scip` writes `debian.scip` covering the Debian packaging files
+- `debian-lsp scip` (from [debian-lsp](https://github.com/jelmer/debian-lsp))
+  writes `debian.scip` covering the Debian packaging files
   (`debian/control`, `debian/rules`, ...). Skipped for trees with no
   `debian/` subdirectory. Disable with `--no-debian-lsp`.
-- `scip-tree-sitter` writes `tree-sitter.scip` with syntax-highlighting
-  tokens for files no language indexer covered, deferring to every other
-  `.scip` in the output directory via `--exclude-scip`. Disable with
-  `--no-tree-sitter`.
+- `scip-tree-sitter` (from
+  [scip-tools](https://github.com/jelmer/scip-tools)) writes
+  `tree-sitter.scip` with syntax-highlighting tokens for files no language
+  indexer covered, deferring to every other `.scip` in the output directory
+  via `--exclude-scip`. Disable with `--no-tree-sitter`.
 
 Both are required: if the tool is missing on `PATH` or exits non-zero, the
 run fails. Pass `--no-debian-lsp` / `--no-tree-sitter` to skip a pass on

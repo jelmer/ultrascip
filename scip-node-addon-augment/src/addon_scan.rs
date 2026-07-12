@@ -4,19 +4,19 @@
 //! patterns used to expose JavaScript-visible names from a native addon.
 //! Recognises:
 //!
-//! * `NAPI_MODULE(name, init)` / `NODE_MODULE(name, init)` — module init
+//! * `NAPI_MODULE(name, init)` / `NODE_MODULE(name, init)` -- module init
 //!   entry point; the first argument is the JS-visible module name.
 //! * `Nan::SetMethod(target, "name", cxx_fn)`,
 //!   `Nan::SetPrototypeMethod(tpl, "name", cxx_fn)`,
-//!   `Nan::Export(target, "name", cxx_fn)` — NAN pattern.
+//!   `Nan::Export(target, "name", cxx_fn)` -- NAN pattern.
 //! * `NODE_SET_METHOD(target, "name", cxx_fn)`,
-//!   `NODE_SET_PROTOTYPE_METHOD(tpl, "name", cxx_fn)` — pre-NAN Node addon
+//!   `NODE_SET_PROTOTYPE_METHOD(tpl, "name", cxx_fn)` -- pre-NAN Node addon
 //!   pattern still used by some legacy code.
-//! * `napi_set_named_property(env, target, "name", value)` — direct N-API
+//! * `napi_set_named_property(env, target, "name", value)` -- direct N-API
 //!   single-property registration. The value expression is either an
 //!   identifier or a call whose target is captured.
 //! * `exports.Set("name", Napi::Function::New(env, cxx_fn))` and the
-//!   equivalent `exports.DefineProperties({ ... })` initializer list —
+//!   equivalent `exports.DefineProperties({ ... })` initializer list --
 //!   node-addon-api C++ pattern.
 //! * `napi_property_descriptor` array initializers with
 //!   `.utf8name = "name", .method = cxx_fn` entries. The array is then
@@ -38,14 +38,14 @@ use tree_sitter::{Language, Node, Parser};
 #[derive(Debug, Clone)]
 pub struct JsExport {
     pub relative_path: PathBuf,
-    /// JS-facing name (e.g. `$connect`, or `exports.foo` — for module
+    /// JS-facing name (e.g. `$connect`, or `exports.foo` -- for module
     /// exports the string is bare).
     pub js_name: String,
     /// C or C++ identifier the export wraps (e.g. `Connection::Connect`,
     /// `init`). Used to look up the C SCIP symbol.
     pub c_name: String,
     pub kind: JsExportKind,
-    /// Zero-based `(line, start_col, end_col)` — the range of the JS-facing
+    /// Zero-based `(line, start_col, end_col)` -- the range of the JS-facing
     /// string literal in the source.
     pub name_span: (u32, u32, u32),
 }
@@ -73,7 +73,7 @@ pub struct ScanResult {
 pub fn scan_file(path: &Path, source_root: &Path, out: &mut ScanResult) -> Result<()> {
     let text = fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
 
-    // Prefilter — most files in a source tree are neither addons nor use N-API.
+    // Prefilter -- most files in a source tree are neither addons nor use N-API.
     if !text.contains("napi_")
         && !text.contains("NODE_")
         && !text.contains("NAPI_")
@@ -175,7 +175,7 @@ fn classify_call(fn_name: &str, call: Node, src: &[u8], rel: &Path, out: &mut Sc
     }
 
     // `Nan::SetMethod(target, "name", fn)`, `Nan::SetPrototypeMethod(tpl,
-    // "name", fn)`, `Nan::Export(target, "name", fn)` — 3-arg forms where
+    // "name", fn)`, `Nan::Export(target, "name", fn)` -- 3-arg forms where
     // arg[1] is the JS name and arg[2] is the C++ identifier.
     if matches!(
         bare,
@@ -214,7 +214,7 @@ fn classify_call(fn_name: &str, call: Node, src: &[u8], rel: &Path, out: &mut Sc
         return;
     }
 
-    // `napi_set_named_property(env, target, "name", value)` — 4-arg form.
+    // `napi_set_named_property(env, target, "name", value)` -- 4-arg form.
     if bare == "napi_set_named_property" {
         let args = call_args(call);
         if args.len() >= 4 {
@@ -239,7 +239,7 @@ fn classify_call(fn_name: &str, call: Node, src: &[u8], rel: &Path, out: &mut Sc
     }
 
     // `napi_create_function(env, "name", NAPI_AUTO_LENGTH, fn, data, &out)`
-    // — 6-arg form. arg[1] = JS name (may be NULL for anonymous), arg[3] = C fn.
+    // -- 6-arg form. arg[1] = JS name (may be NULL for anonymous), arg[3] = C fn.
     if bare == "napi_create_function" {
         let args = call_args(call);
         if args.len() >= 4 {
@@ -264,7 +264,7 @@ fn classify_call(fn_name: &str, call: Node, src: &[u8], rel: &Path, out: &mut Sc
     }
 
     // node-addon-api C++: `exports.Set("name", Napi::Function::New(env, fn))`.
-    // The callee is `<expr>.Set` — we can't tell it apart from other `.Set`
+    // The callee is `<expr>.Set` -- we can't tell it apart from other `.Set`
     // calls from the fn name alone, so we match by argument shape: 2 args,
     // first is a string literal, second contains a `Napi::Function::New` call
     // whose second-or-third arg is the C fn.
@@ -319,7 +319,7 @@ fn string_literal_value(node: Node, src: &[u8]) -> Option<String> {
 /// Extract the C/C++ identifier being passed as a function pointer.
 ///
 /// Accepts a bare `identifier`, a `qualified_identifier`
-/// (`Connection::Connect`), or a call/cast expression — in the last case we
+/// (`Connection::Connect`), or a call/cast expression -- in the last case we
 /// walk the subtree and take the last identifier we see, since that's
 /// invariably the wrapped C++ callback.
 fn qualified_identifier_or_call_target(node: Node, src: &[u8]) -> String {
@@ -386,7 +386,7 @@ fn collect_property_descriptor(node: Node, src: &[u8], rel: &Path, out: &mut Sca
     // The outer initializer_list contains other initializer_lists (rows).
     // We look at each row for the `.utf8name`/`.method` pair. We also accept
     // any row where the first two positional fields are a string literal
-    // and an identifier — that covers `napi_property_descriptor` in
+    // and an identifier -- that covers `napi_property_descriptor` in
     // positional form.
     let mut js_name: Option<String> = None;
     let mut js_name_span: Option<(u32, u32, u32)> = None;
