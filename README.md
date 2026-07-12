@@ -5,20 +5,20 @@ source package.
 
 ## Supported build systems
 
-| Build system            | Indexer          | Language   |
-|-------------------------|------------------|------------|
-| cargo                   | rust-analyzer    | rust       |
-| setup.py                | scip-python      | python     |
-| golang                  | scip-go          | go         |
-| maven / gradle          | scip-java        | java       |
-| node                    | scip-typescript  | typescript |
-| gem                     | scip-ruby        | ruby       |
-| cmake                   | scip-clang       | cpp        |
-| meson (C/C++)           | scip-clang       | cpp        |
-| meson (Vala)            | scip-vala        | vala       |
-| make                    | scip-clang       | cpp        |
-| Makefile.PL             | scip-perl        | perl       |
-| Dist::Zilla / M::B::Tiny| scip-perl        | perl       |
+| Build system            | Indexer                                                             | Language   |
+|-------------------------|---------------------------------------------------------------------|------------|
+| cargo                   | [rust-analyzer](https://github.com/rust-lang/rust-analyzer)         | rust       |
+| setup.py                | [scip-python](https://github.com/sourcegraph/scip-python)           | python     |
+| golang                  | [scip-go](https://github.com/sourcegraph/scip-go)                   | go         |
+| maven / gradle          | [scip-java](https://github.com/sourcegraph/scip-java)               | java       |
+| node                    | [scip-typescript](https://github.com/sourcegraph/scip-typescript)   | typescript |
+| gem                     | [scip-ruby](https://github.com/sourcegraph/scip-ruby)               | ruby       |
+| cmake                   | [scip-clang](https://github.com/sourcegraph/scip-clang)             | cpp        |
+| meson (C/C++)           | [scip-clang](https://github.com/sourcegraph/scip-clang)             | cpp        |
+| meson (Vala)            | [scip-vala](https://github.com/jelmer/scip-vala)                    | vala       |
+| make                    | [scip-clang](https://github.com/sourcegraph/scip-clang)             | cpp        |
+| Makefile.PL             | [scip-perl](https://github.com/jelmer/scip-perl)                    | perl       |
+| Dist::Zilla / M::B::Tiny| [scip-perl](https://github.com/jelmer/scip-perl)                    | perl       |
 
 When two build systems in a project map to the same language, the output file
 is disambiguated by appending the build system name (e.g. `cpp-meson.scip`
