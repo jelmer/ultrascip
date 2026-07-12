@@ -950,6 +950,34 @@ pub fn run_scip_multi(
                         )
                     },
                 );
+
+                // Likewise for Ruby C extensions: rb_define_module /
+                // rb_define_class / rb_define_method registrations become
+                // Ruby-side symbols pointing back at the C definitions.
+                // Skipped when the sources have no such registrations or
+                // when no gem name can be inferred (no *.gemspec).
+                write_companion(
+                    output_dir,
+                    "ruby-cext",
+                    name,
+                    &mut taken,
+                    "Ruby extension",
+                    |path| {
+                        let opts = scip_c_ruby_augment::AugmentOptions {
+                            source_root: std::env::current_dir().ok(),
+                            ruby_gem: None,
+                            ruby_version: None,
+                        };
+                        Ok(
+                            match scip_c_ruby_augment::augment_file(&dest, path, &opts)? {
+                                scip_c_ruby_augment::AugmentOutcome::Written(stats) => {
+                                    Some((stats.documents, stats.exports))
+                                }
+                                scip_c_ruby_augment::AugmentOutcome::NoExports => None,
+                            },
+                        )
+                    },
+                );
             }
         }
     }
