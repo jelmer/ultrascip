@@ -37,11 +37,15 @@ linked back to the native definitions. Supported bindings:
   -> `python-cpython.scip`.
 - C/C++ Node.js native addons (`NAPI_MODULE`, `NODE_MODULE`,
   `Nan::SetMethod`, `napi_property_descriptor`) -> `js-node-addon.scip`.
+- C/C++ Ruby extensions (`rb_define_module`, `rb_define_class`,
+  `rb_define_method` and friends) -> `ruby-cext.scip`.
+- C/C++ JNI libraries (mangled `Java_*` exports, `JNINativeMethod`
+  tables registered via `RegisterNatives`) -> `java-jni.scip`.
 
 Each companion is produced by a standalone workspace binary
 (`scip-c-abi-augment`, `scip-pyo3-augment`, `scip-c-python-augment`,
-`scip-node-addon-augment`) and skipped silently when the source has no
-matching bindings.
+`scip-node-addon-augment`, `scip-c-ruby-augment`, `scip-jni-augment`) and
+skipped silently when the source has no matching bindings.
 
 Gradle indexing currently fails on Debian: `scip-java`'s init script uses
 Gradle 4.9+ APIs but Debian ships 4.4.1. Maven works.
