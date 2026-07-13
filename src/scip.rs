@@ -357,18 +357,56 @@ fn run_index_command(
     Ok(version)
 }
 
+/// rust-analyzer config for `rust-analyzer scip`: index with every cargo
+/// feature enabled, so feature-gated code is covered rather than left to the
+/// tree-sitter pass. There is no `--all-features` flag; features can only be
+/// set through `--config-path`.
+const RUST_ANALYZER_SCIP_CONFIG: &str = r#"{"cargo": {"features": "all"}}"#;
+
 fn index_cargo(
     session: &dyn Session,
     installer: &dyn Installer,
     fixers: &[&dyn BuildFixer<InstallerError>],
     output: &str,
 ) -> Result<Option<String>, Error> {
+    // The config file goes next to the staged output (outside the project
+    // tree). `external_path` is resolved on the containing directory rather
+    // than the file, because it canonicalizes on plain sessions and the file
+    // does not exist yet.
+    let config_path = format!("{}.ra-config.json", output);
+    let (config_dir, config_file) = {
+        let p = Path::new(&config_path);
+        match (p.parent(), p.file_name()) {
+            (Some(dir), Some(file)) if !dir.as_os_str().is_empty() => (dir, file),
+            _ => {
+                return Err(Error::Other(format!(
+                    "Output path has no parent directory: {}",
+                    output
+                )))
+            }
+        }
+    };
+    let external = session.external_path(config_dir).join(config_file);
+    std::fs::write(&external, RUST_ANALYZER_SCIP_CONFIG).map_err(|e| {
+        Error::Other(format!(
+            "Failed to write rust-analyzer config {}: {}",
+            external.display(),
+            e
+        ))
+    })?;
     run_index_command(
         session,
         installer,
         fixers,
         "rust-analyzer",
-        &["scip", ".", "--output", output],
+        &[
+            "scip",
+            ".",
+            "--output",
+            output,
+            "--config-path",
+            &config_path,
+        ],
     )
 }
 
@@ -1111,6 +1149,14 @@ pub fn run_scip_multi(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_rust_analyzer_scip_config() {
+        // rust-analyzer silently ignores unknown config keys, so a typo here
+        // would quietly drop --all-features; pin the exact shape it expects.
+        let config: serde_json::Value = serde_json::from_str(RUST_ANALYZER_SCIP_CONFIG).unwrap();
+        assert_eq!(config, serde_json::json!({"cargo": {"features": "all"}}));
+    }
 
     #[test]
     fn test_scip_clang_args() {
