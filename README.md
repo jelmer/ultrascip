@@ -8,7 +8,7 @@ source package.
 | Build system            | Indexer                                                             | Language   |
 |-------------------------|---------------------------------------------------------------------|------------|
 | cargo                   | [rust-analyzer](https://github.com/rust-lang/rust-analyzer)         | rust       |
-| setup.py                | [scip-python](https://github.com/sourcegraph/scip-python)           | python     |
+| setup.py                | [scip-python](https://github.com/jelmer/scip-python-rs)             | python     |
 | golang                  | [scip-go](https://github.com/sourcegraph/scip-go)                   | go         |
 | maven / gradle          | [scip-java](https://github.com/sourcegraph/scip-java)               | java       |
 | node                    | [scip-typescript](https://github.com/sourcegraph/scip-typescript)   | typescript |
