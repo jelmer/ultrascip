@@ -10,16 +10,19 @@
 //! `ognibuild/src/actions/scip.rs` into the [`scip`] module; the rest
 //! (installer resolution, session backends, etc.) is used as a library.
 
-// Copied verbatim from ognibuild/src/actions/scip.rs; the only edits are the
-// `crate::` -> `ognibuild::` path rewrites at the top. Kept diffable against
-// upstream so future ognibuild changes to the SCIP orchestrator can be
-// re-applied by re-copying and re-running the same sed. `run_scip` (the
-// single-file variant) is unused here -- we only call `run_scip_multi` -- but
-// stays put so the file stays a straight copy.
+// Started as a copy of ognibuild/src/actions/scip.rs (with `crate::` ->
+// `ognibuild::` path rewrites), but has since grown FFI companion indexes,
+// the manifest report and all-features Rust indexing, so it is no longer
+// diffable against upstream. `run_scip` (the single-file variant) is unused
+// here -- we only call `run_scip_multi` -- but stays put for parity with
+// upstream.
 #[allow(dead_code)]
 mod scip;
 
+mod manifest;
+
 use clap::Parser;
+use manifest::{IndexEntry, Manifest};
 use ognibuild::analyze::AnalyzedError;
 use ognibuild::buildsystem::{detect_buildsystems, Error};
 use ognibuild::fix_build::BuildFixer;
@@ -143,6 +146,12 @@ fn main() -> std::process::ExitCode {
             log::error!("{}", msg);
             std::process::ExitCode::from(1)
         }
+        Err(RunError::IndexersFailed) => {
+            // The per-build-system failures were already logged as warnings
+            // (and recorded in manifest.json); this only sets the exit code.
+            log::error!("One or more SCIP indexers failed");
+            std::process::ExitCode::from(1)
+        }
     }
 }
 
@@ -150,6 +159,9 @@ enum RunError {
     NoBuildSystem,
     Ognibuild(Error),
     Setup(String),
+    /// Some build systems failed to index; details are in the manifest and
+    /// the log.
+    IndexersFailed,
 }
 
 impl From<Error> for RunError {
@@ -239,38 +251,81 @@ fn run(args: &Args) -> Result<(), RunError> {
         &args.output_all,
     );
 
+    let mut manifest = Manifest::new();
+    let indexer_error = match indexer_result {
+        Ok(report) => {
+            manifest.indexes = report.indexes;
+            manifest.failures = report.failures;
+            None
+        }
+        Err(e) => Some(e),
+    };
+
+    let post_result = run_post_passes(args, project.external_path(), &mut manifest);
+
+    // Write the manifest even when a pass failed: it describes whatever
+    // indexes did land in the output directory.
+    let manifest_path = args.output_all.join("manifest.json");
+    manifest
+        .write(&manifest_path)
+        .map_err(|e| RunError::Setup(format!("cannot write {}: {}", manifest_path.display(), e)))?;
+    log::info!("Wrote manifest to {}", manifest_path.display());
+
+    post_result?;
+    if let Some(e) = indexer_error {
+        return Err(e.into());
+    }
+    if !manifest.failures.is_empty() {
+        return Err(RunError::IndexersFailed);
+    }
+    Ok(())
+}
+
+/// Run the host-side post-passes, recording each index written in the
+/// manifest. Stops at the first failing pass.
+fn run_post_passes(
+    args: &Args,
+    source_dir: &Path,
+    manifest: &mut Manifest,
+) -> Result<(), RunError> {
     if !args.no_debian_lsp {
-        run_debian_lsp(project.external_path(), &args.output_all)?;
+        if let Some(entry) = run_debian_lsp(source_dir, &args.output_all)? {
+            manifest.indexes.push(entry);
+        }
     }
     if !args.no_makefile_lsp {
-        run_makefile_lsp(project.external_path(), &args.output_all)?;
+        if let Some(entry) = run_makefile_lsp(source_dir, &args.output_all)? {
+            manifest.indexes.push(entry);
+        }
     }
     if !args.no_shell {
-        run_shell(
-            project.external_path(),
+        if let Some(entry) = run_shell(
+            source_dir,
             &args.output_all,
             args.package_name.as_deref(),
             args.package_version.as_deref(),
-        )?;
+        )? {
+            manifest.indexes.push(entry);
+        }
     }
     if !args.no_tree_sitter {
-        run_tree_sitter(project.external_path(), &args.output_all)?;
+        if let Some(entry) = run_tree_sitter(source_dir, &args.output_all)? {
+            manifest.indexes.push(entry);
+        }
     }
-
-    indexer_result?;
     Ok(())
 }
 
 /// Run `debian-lsp scip` on the source tree to produce `debian.scip`. No-op
 /// when the tree has no `debian/` subdirectory (upstream tarballs, non-Debian
 /// projects); a non-zero exit or missing binary is a hard error.
-fn run_debian_lsp(source_dir: &Path, output_dir: &Path) -> Result<(), RunError> {
+fn run_debian_lsp(source_dir: &Path, output_dir: &Path) -> Result<Option<IndexEntry>, RunError> {
     if !source_dir.join("debian").is_dir() {
         log::debug!(
             "No debian/ in {}; skipping debian-lsp",
             source_dir.display()
         );
-        return Ok(());
+        return Ok(None);
     }
     let output = output_dir.join("debian.scip");
     log::info!(
@@ -290,20 +345,20 @@ fn run_debian_lsp(source_dir: &Path, output_dir: &Path) -> Result<(), RunError> 
             status
         )));
     }
-    Ok(())
+    Ok(Some(IndexEntry::post_pass("debian.scip", "debian-lsp")))
 }
 
 /// Run `makefile-lsp scip` on `debian/rules` to produce `makefile.scip`. No-op
 /// when the tree has no `debian/rules` (upstream tarballs, non-Debian
 /// projects); a non-zero exit or missing binary is a hard error.
-fn run_makefile_lsp(source_dir: &Path, output_dir: &Path) -> Result<(), RunError> {
+fn run_makefile_lsp(source_dir: &Path, output_dir: &Path) -> Result<Option<IndexEntry>, RunError> {
     let rules = source_dir.join("debian/rules");
     if !rules.is_file() {
         log::debug!(
             "No debian/rules in {}; skipping makefile-lsp",
             source_dir.display()
         );
-        return Ok(());
+        return Ok(None);
     }
     let output = output_dir.join("makefile.scip");
     log::info!("Generating Makefile SCIP index at {}", output.display());
@@ -322,7 +377,7 @@ fn run_makefile_lsp(source_dir: &Path, output_dir: &Path) -> Result<(), RunError
             status
         )));
     }
-    Ok(())
+    Ok(Some(IndexEntry::post_pass("makefile.scip", "makefile-lsp")))
 }
 
 /// Run `scip-shell` on the source tree to produce `shell.scip`. Runs before
@@ -333,7 +388,7 @@ fn run_shell(
     output_dir: &Path,
     package_name: Option<&str>,
     package_version: Option<&str>,
-) -> Result<(), RunError> {
+) -> Result<Option<IndexEntry>, RunError> {
     let output = output_dir.join("shell.scip");
     log::info!("Generating shell SCIP index at {}", output.display());
     let mut cmd = std::process::Command::new("scip-shell");
@@ -355,14 +410,14 @@ fn run_shell(
             status
         )));
     }
-    Ok(())
+    Ok(Some(IndexEntry::post_pass("shell.scip", "scip-shell")))
 }
 
 /// Run `scip-tree-sitter` to produce `tree-sitter.scip`, covering files no
 /// language indexer touched. Passes every other `.scip` in `output_dir` as
 /// `--exclude-scip` so the tree-sitter pass defers to their richer tokens. A
 /// non-zero exit or missing binary is a hard error.
-fn run_tree_sitter(source_dir: &Path, output_dir: &Path) -> Result<(), RunError> {
+fn run_tree_sitter(source_dir: &Path, output_dir: &Path) -> Result<Option<IndexEntry>, RunError> {
     let output = output_dir.join("tree-sitter.scip");
     let mut cmd = std::process::Command::new("scip-tree-sitter");
     cmd.arg("--root").arg(source_dir);
@@ -391,7 +446,10 @@ fn run_tree_sitter(source_dir: &Path, output_dir: &Path) -> Result<(), RunError>
             status
         )));
     }
-    Ok(())
+    Ok(Some(IndexEntry::post_pass(
+        "tree-sitter.scip",
+        "scip-tree-sitter",
+    )))
 }
 
 /// Install the Debian source package's Build-Depends inside the session, from

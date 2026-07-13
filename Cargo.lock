@@ -3643,6 +3643,7 @@ dependencies = [
  "scip-jni-augment",
  "scip-node-addon-augment",
  "scip-pyo3-augment",
+ "serde",
  "serde_json",
  "tar",
 ]

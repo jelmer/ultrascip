@@ -68,6 +68,16 @@ Both are required: if the tool is missing on `PATH` or exits non-zero, the
 run fails. Pass `--no-debian-lsp` / `--no-tree-sitter` to skip a pass on
 purpose.
 
+## Manifest
+
+A `manifest.json` is written into the output directory alongside the indexes.
+It records, per index file, what kind of producer wrote it (language indexer,
+FFI companion or post-pass), the build system and indexer it came from, and
+the indexer's release tag when one was downloaded during the run. Build
+systems whose indexer failed are listed under `failures`; the successful
+indexes are kept and the process exits non-zero. The manifest is written even
+when a pass fails, describing whatever did land in the output directory.
+
 ## Usage
 
 ```

@@ -1,3 +1,4 @@
+use crate::manifest::{IndexEntry, IndexFailure, ScipReport};
 use ognibuild::buildsystem::{guaranteed_which, BuildSystem, Error};
 use ognibuild::fix_build::{run_fixing_problems, BuildFixer};
 use ognibuild::installer::{Error as InstallerError, Installer};
@@ -5,61 +6,79 @@ use ognibuild::session::Session;
 use std::collections::HashSet;
 use std::path::Path;
 
+/// A completed indexer run: which language was indexed, by which indexer
+/// binary, and (when it was downloaded as a release binary during this run)
+/// at which release tag.
+struct IndexerRun {
+    language: &'static str,
+    indexer: &'static str,
+    version: Option<String>,
+}
+
 /// Run the SCIP indexer for `buildsystem`, writing the index to `output`.
 ///
 /// Each build system gets its own indexer function that does whatever that
 /// indexer needs: running a build first to produce a `compile_commands.json`,
 /// resolving project metadata, and so on. Returns the indexed language (used to
-/// name the output file, e.g. `python`), or `None` when no indexer is known for
-/// the build system. Several build systems may share a language (e.g.
-/// cmake/meson/make all produce `cpp`).
+/// name the output file, e.g. `python`) and the indexer that ran, or `None`
+/// when no indexer is known for the build system. Several build systems may
+/// share a language (e.g. cmake/meson/make all produce `cpp`).
 fn run_indexer(
     buildsystem: &dyn BuildSystem,
     session: &dyn Session,
     installer: &dyn Installer,
     fixers: &[&dyn BuildFixer<InstallerError>],
     output: &Path,
-) -> Result<Option<&'static str>, Error> {
+) -> Result<Option<IndexerRun>, Error> {
     let output = output.to_str().ok_or_else(|| {
         Error::Other(format!(
             "Output path is not valid UTF-8: {}",
             output.display()
         ))
     })?;
-    let language = match buildsystem.name() {
-        "cargo" => {
-            index_cargo(session, installer, fixers, output)?;
-            "rust"
-        }
-        "setup.py" => {
-            index_python(session, installer, fixers, output)?;
-            "python"
-        }
-        "golang" => {
-            index_golang(session, installer, fixers, output)?;
-            "go"
-        }
+    let (language, indexer, version) = match buildsystem.name() {
+        "cargo" => (
+            "rust",
+            "rust-analyzer",
+            index_cargo(session, installer, fixers, output)?,
+        ),
+        "setup.py" => (
+            "python",
+            "scip-python",
+            index_python(session, installer, fixers, output)?,
+        ),
+        "golang" => (
+            "go",
+            "scip-go",
+            index_golang(session, installer, fixers, output)?,
+        ),
         "maven" | "gradle" => {
             // TODO(jelmer): Gradle indexing fails on Debian: scip-java's
             // init-script uses TaskCollection.configureEach (Gradle 4.9+) but
             // Debian ships gradle 4.4.1, so the build aborts before producing an
             // index. Needs a newer Gradle provisioned in-session, or skipping
             // Gradle until Debian catches up. Maven works.
-            index_java(session, installer, fixers, output)?;
-            "java"
+            (
+                "java",
+                "scip-java",
+                index_java(session, installer, fixers, output)?,
+            )
         }
-        "node" => {
-            index_node(session, installer, fixers, output)?;
-            "typescript"
-        }
-        "gem" => {
-            index_ruby(session, installer, fixers, output)?;
-            "ruby"
-        }
-        "cmake" => {
-            index_clang(session, installer, fixers, output, Cpp::CMake)?;
-            "cpp"
-        }
+        "node" => (
+            "typescript",
+            "scip-typescript",
+            index_node(session, installer, fixers, output)?,
+        ),
+        "gem" => (
+            "ruby",
+            "scip-ruby",
+            index_ruby(session, installer, fixers, output)?,
+        ),
+        "cmake" => (
+            "cpp",
+            "scip-clang",
+            index_clang(session, installer, fixers, output, Cpp::CMake)?,
+        ),
         "meson" => {
             // A Meson project may build Vala or C/C++. Vala compiles down to C,
             // so scip-clang on the generated C would not navigate the Vala
@@ -73,11 +92,17 @@ fn run_indexer(
                 .vala_index_info(session, Some(fixers))
                 .map_err(|e| Error::Other(format!("Failed to introspect Vala targets: {}", e)))?;
             if info.sources.is_empty() {
-                index_clang(session, installer, fixers, output, Cpp::Meson)?;
-                "cpp"
+                (
+                    "cpp",
+                    "scip-clang",
+                    index_clang(session, installer, fixers, output, Cpp::Meson)?,
+                )
             } else {
-                index_vala(session, installer, fixers, output, &info)?;
-                "vala"
+                (
+                    "vala",
+                    "scip-vala",
+                    index_vala(session, installer, fixers, output, &info)?,
+                )
             }
         }
         "make" => {
@@ -88,20 +113,31 @@ fn run_indexer(
                 .downcast_ref::<ognibuild::buildsystems::make::Make>()
                 .is_some_and(ognibuild::buildsystems::make::Make::is_makefile_pl)
             {
-                index_perl(session, installer, fixers, output)?;
-                "perl"
+                (
+                    "perl",
+                    "scip-perl",
+                    index_perl(session, installer, fixers, output)?,
+                )
             } else {
-                index_clang(session, installer, fixers, output, Cpp::Make(buildsystem))?;
-                "cpp"
+                (
+                    "cpp",
+                    "scip-clang",
+                    index_clang(session, installer, fixers, output, Cpp::Make(buildsystem))?,
+                )
             }
         }
-        "Dist::Zilla" | "Module::Build::Tiny" => {
-            index_perl(session, installer, fixers, output)?;
-            "perl"
-        }
+        "Dist::Zilla" | "Module::Build::Tiny" => (
+            "perl",
+            "scip-perl",
+            index_perl(session, installer, fixers, output)?,
+        ),
         _ => return Ok(None),
     };
-    Ok(Some(language))
+    Ok(Some(IndexerRun {
+        language,
+        indexer,
+        version,
+    }))
 }
 
 /// How a standalone release-binary indexer is packaged for download.
@@ -265,15 +301,18 @@ fn extract_tar_member(archive: &[u8], member: &str) -> Result<Vec<u8>, Error> {
 ///
 /// The indexer is fetched over HTTP host-side and written straight into the
 /// session via `external_path`, so the session base needs no download tooling.
-fn provide_release_indexer(session: &dyn Session, binary: &str) -> Result<(), Error> {
+///
+/// Returns the release tag that was downloaded, or `None` when nothing was
+/// (the binary was already present, or is not a release-binary indexer).
+fn provide_release_indexer(session: &dyn Session, binary: &str) -> Result<Option<String>, Error> {
     let Some(indexer) = RELEASE_BINARY_INDEXERS
         .iter()
         .find(|indexer| indexer.binary == binary)
     else {
-        return Ok(());
+        return Ok(None);
     };
     if ognibuild::session::which(session, binary).is_some() {
-        return Ok(());
+        return Ok(None);
     }
     if !session.exists(Path::new("/usr/local/bin")) {
         session.mkdir(Path::new("/usr/local/bin"))?;
@@ -296,23 +335,26 @@ fn provide_release_indexer(session: &dyn Session, binary: &str) -> Result<(), Er
     let mut perms = std::fs::metadata(&dest)?.permissions();
     std::os::unix::fs::PermissionsExt::set_mode(&mut perms, 0o755);
     std::fs::set_permissions(&dest, perms)?;
-    Ok(())
+    Ok(Some(tag))
 }
 
 /// Run an indexer binary, resolving missing dependencies as it goes.
+///
+/// Returns the indexer's release tag when it was downloaded as a release
+/// binary for this run (see [`provide_release_indexer`]).
 fn run_index_command(
     session: &dyn Session,
     installer: &dyn Installer,
     fixers: &[&dyn BuildFixer<InstallerError>],
     binary: &str,
     args: &[&str],
-) -> Result<(), Error> {
-    provide_release_indexer(session, binary)?;
+) -> Result<Option<String>, Error> {
+    let version = provide_release_indexer(session, binary)?;
     let binary_path = guaranteed_which(session, installer, binary)?;
     let mut argv = vec![binary_path.to_str().unwrap()];
     argv.extend_from_slice(args);
     run_fixing_problems::<_, Error>(fixers, None, session, &argv, false, None, None, None)?;
-    Ok(())
+    Ok(version)
 }
 
 fn index_cargo(
@@ -320,7 +362,7 @@ fn index_cargo(
     installer: &dyn Installer,
     fixers: &[&dyn BuildFixer<InstallerError>],
     output: &str,
-) -> Result<(), Error> {
+) -> Result<Option<String>, Error> {
     run_index_command(
         session,
         installer,
@@ -335,7 +377,7 @@ fn index_golang(
     installer: &dyn Installer,
     fixers: &[&dyn BuildFixer<InstallerError>],
     output: &str,
-) -> Result<(), Error> {
+) -> Result<Option<String>, Error> {
     run_index_command(session, installer, fixers, "scip-go", &["--output", output])
 }
 
@@ -344,7 +386,7 @@ fn index_java(
     installer: &dyn Installer,
     fixers: &[&dyn BuildFixer<InstallerError>],
     output: &str,
-) -> Result<(), Error> {
+) -> Result<Option<String>, Error> {
     // scip-java's default Maven command is `clean verify`, whose lifecycle runs
     // gate plugins (enforcer, apache-rat, checkstyle, ...) that abort the build
     // before any index is produced. Indexing only needs the sources compiled, so
@@ -382,7 +424,7 @@ fn index_node(
     installer: &dyn Installer,
     fixers: &[&dyn BuildFixer<InstallerError>],
     output: &str,
-) -> Result<(), Error> {
+) -> Result<Option<String>, Error> {
     run_index_command(
         session,
         installer,
@@ -397,7 +439,7 @@ fn index_ruby(
     installer: &dyn Installer,
     fixers: &[&dyn BuildFixer<InstallerError>],
     output: &str,
-) -> Result<(), Error> {
+) -> Result<Option<String>, Error> {
     // scip-ruby is installed via `gem install` (the GemResolver), so the `gem`
     // command has to be present before resolving it; ensure it up front rather
     // than letting the gem resolver fail on a missing `gem`.
@@ -418,7 +460,7 @@ fn index_perl(
     installer: &dyn Installer,
     fixers: &[&dyn BuildFixer<InstallerError>],
     output: &str,
-) -> Result<(), Error> {
+) -> Result<Option<String>, Error> {
     // scip-perl is installed via `cargo install` (the CargoResolver), so the
     // `cargo` command has to be present before resolving it; ensure it up front
     // rather than letting the cargo resolver fail on a missing `cargo`.
@@ -443,7 +485,7 @@ fn index_vala(
     fixers: &[&dyn BuildFixer<InstallerError>],
     output: &str,
     info: &ognibuild::buildsystems::meson::ValaIndexInfo,
-) -> Result<(), Error> {
+) -> Result<Option<String>, Error> {
     // scip-vala is installed via `cargo install` (the CargoResolver), so the
     // `cargo` command has to be present before resolving it; ensure it up front
     // rather than letting the cargo resolver fail on a missing `cargo` (see the
@@ -465,7 +507,7 @@ fn index_python(
     installer: &dyn Installer,
     fixers: &[&dyn BuildFixer<InstallerError>],
     output: &str,
-) -> Result<(), Error> {
+) -> Result<Option<String>, Error> {
     // scip-python crashes when it cannot determine the project name and version
     // itself (e.g. a dynamic version with no VCS metadata), so resolve them up
     // front via the project's PEP 517 wheel metadata and pass them explicitly.
@@ -524,7 +566,7 @@ fn index_clang(
     fixers: &[&dyn BuildFixer<InstallerError>],
     output: &str,
     build: Cpp<'_>,
-) -> Result<(), Error> {
+) -> Result<Option<String>, Error> {
     // scip-clang consumes a `compile_commands.json` produced by the build, so
     // run the build first to generate one.
     let compdb = match build {
@@ -704,21 +746,26 @@ fn index_file_name(language: &str, buildsystem: &str, taken: &HashSet<String>) -
 /// Write one FFI companion index into `output_dir`, named via
 /// [`index_file_name`]. `augment` receives the output path and returns
 /// `Some((documents, exports))` when a companion was written, or `None` when
-/// the sources had no matching bindings. Companions are best-effort: a
-/// failure is logged and does not discard the main index.
+/// the sources had no matching bindings. A written companion is recorded in
+/// `indexes` under `indexer` (the augment crate that produced it).
+/// Companions are best-effort: a failure is logged and does not discard the
+/// main index.
+#[allow(clippy::too_many_arguments)]
 fn write_companion(
     output_dir: &Path,
     language: &str,
     buildsystem: &str,
     taken: &mut HashSet<String>,
     what: &str,
+    indexer: &str,
+    indexes: &mut Vec<IndexEntry>,
     augment: impl FnOnce(&Path) -> anyhow::Result<Option<(usize, usize)>>,
 ) {
     let file_name = index_file_name(language, buildsystem, taken);
     let path = output_dir.join(&file_name);
     match augment(&path) {
         Ok(Some((documents, exports))) => {
-            taken.insert(file_name);
+            taken.insert(file_name.clone());
             log::info!(
                 "Wrote {} companion index to {} ({} documents, {} exports)",
                 what,
@@ -726,6 +773,13 @@ fn write_companion(
                 documents,
                 exports,
             );
+            indexes.push(IndexEntry::companion(
+                file_name,
+                buildsystem,
+                indexer,
+                documents,
+                exports,
+            ));
         }
         Ok(None) => {
             log::debug!("No {} exports found; skipping companion index", what);
@@ -755,9 +809,11 @@ fn write_companion(
 /// project.
 ///
 /// Indexing is best-effort: a failure for one build system does not discard the
-/// indexes already written for the others. If any indexer fails the last error
-/// is still returned (so the caller exits non-zero) while the successful indexes
-/// remain on disk.
+/// indexes already written for the others. The returned [`ScipReport`] lists
+/// the indexes written and the build systems that failed; the caller decides
+/// whether a non-empty failure list makes the run exit non-zero. An `Err` is
+/// only returned when nothing could be indexed at all or on a hard error
+/// (staging setup, copying an index out of the session).
 ///
 /// # Arguments
 /// * `session` - The session to run commands in
@@ -772,7 +828,7 @@ pub fn run_scip_multi(
     installer: &dyn Installer,
     fixers: &[&dyn BuildFixer<InstallerError>],
     output_dir: &Path,
-) -> Result<(), Error> {
+) -> Result<ScipReport, Error> {
     session.create_home()?;
 
     // `output_dir` is a host path; in an isolated session (e.g. unshare) it does
@@ -784,10 +840,10 @@ pub fn run_scip_multi(
     let staging = session_tempdir(session)?;
 
     let mut attempted = 0;
-    let mut last_error = None;
-    // Indexes that succeeded, as (staging path, language, build system name).
-    // The final per-language file name is resolved after the loop, once every
-    // language that occurs is known.
+    let mut report = ScipReport::default();
+    // Indexes that succeeded, as (staging path, indexer run, build system
+    // name). The final per-language file name is resolved after the loop,
+    // once every language that occurs is known.
     let mut written = Vec::new();
     for (i, buildsystem) in buildsystems.iter().enumerate() {
         let name = buildsystem.name();
@@ -806,15 +862,18 @@ pub fn run_scip_multi(
             Ok(None) => {
                 log::debug!("No SCIP indexer known for build system {}", name);
             }
-            Ok(Some(language)) => {
+            Ok(Some(run)) => {
                 attempted += 1;
                 log::info!("Wrote SCIP index to {}", staged.display());
-                written.push((staged, language, name));
+                written.push((staged, run, name));
             }
             Err(e) => {
                 attempted += 1;
                 log::warn!("Failed to generate SCIP index for {}: {}", name, e);
-                last_error = Some(e);
+                report.failures.push(IndexFailure {
+                    build_system: name.to_string(),
+                    error: e.to_string(),
+                });
             }
         }
     }
@@ -826,7 +885,8 @@ pub fn run_scip_multi(
     if !written.is_empty() {
         std::fs::create_dir_all(output_dir)?;
         let mut taken = HashSet::new();
-        for (staged, language, name) in &written {
+        for (staged, run, name) in &written {
+            let language = run.language;
             let file_name = index_file_name(language, name, &taken);
             taken.insert(file_name.clone());
             let src = session.external_path(staged);
@@ -839,6 +899,13 @@ pub fn run_scip_multi(
                     e
                 ))
             })?;
+            report.indexes.push(IndexEntry::language(
+                file_name,
+                language,
+                name,
+                run.indexer,
+                run.version.clone(),
+            ));
 
             // For a rust-analyzer index, emit two companion SCIP indexes:
             //
@@ -853,13 +920,15 @@ pub fn run_scip_multi(
             //
             // Both are best-effort: a failure here does not discard the Rust
             // index we just wrote, we just log and carry on.
-            if *language == "rust" {
+            if language == "rust" {
                 write_companion(
                     output_dir,
                     "rust-c-abi",
                     name,
                     &mut taken,
                     "C ABI",
+                    "scip-c-abi-augment",
+                    &mut report.indexes,
                     |path| {
                         scip_c_abi_augment::augment_file(&dest, path)
                             .map(|stats| Some((stats.documents, stats.exports)))
@@ -875,6 +944,8 @@ pub fn run_scip_multi(
                     name,
                     &mut taken,
                     "PyO3",
+                    "scip-pyo3-augment",
+                    &mut report.indexes,
                     |path| {
                         let opts = scip_pyo3_augment::AugmentOptions {
                             source_root: std::env::current_dir().ok(),
@@ -897,13 +968,15 @@ pub fn run_scip_multi(
             // imports into the C definitions. Skipped when the sources have
             // no such entry points or when no Python package name can be
             // inferred (no pyproject.toml).
-            if *language == "cpp" {
+            if language == "cpp" {
                 write_companion(
                     output_dir,
                     "python-cpython",
                     name,
                     &mut taken,
                     "CPython",
+                    "scip-c-python-augment",
+                    &mut report.indexes,
                     |path| {
                         let opts = scip_c_python_augment::AugmentOptions {
                             source_root: std::env::current_dir().ok(),
@@ -934,6 +1007,8 @@ pub fn run_scip_multi(
                     name,
                     &mut taken,
                     "Node addon",
+                    "scip-node-addon-augment",
+                    &mut report.indexes,
                     |path| {
                         let opts = scip_node_addon_augment::AugmentOptions {
                             source_root: std::env::current_dir().ok(),
@@ -962,6 +1037,8 @@ pub fn run_scip_multi(
                     name,
                     &mut taken,
                     "Ruby extension",
+                    "scip-c-ruby-augment",
+                    &mut report.indexes,
                     |path| {
                         let opts = scip_c_ruby_augment::AugmentOptions {
                             source_root: std::env::current_dir().ok(),
@@ -982,19 +1059,28 @@ pub fn run_scip_multi(
                 // And for JNI: mangled Java_* exports and RegisterNatives
                 // tables become Java-side symbols pointing back at the C
                 // definitions. Skipped when the sources have no JNI exports.
-                write_companion(output_dir, "java-jni", name, &mut taken, "JNI", |path| {
-                    let opts = scip_jni_augment::AugmentOptions {
-                        source_root: std::env::current_dir().ok(),
-                        java_package: None,
-                        java_version: None,
-                    };
-                    Ok(match scip_jni_augment::augment_file(&dest, path, &opts)? {
-                        scip_jni_augment::AugmentOutcome::Written(stats) => {
-                            Some((stats.documents, stats.exports))
-                        }
-                        scip_jni_augment::AugmentOutcome::NoExports => None,
-                    })
-                });
+                write_companion(
+                    output_dir,
+                    "java-jni",
+                    name,
+                    &mut taken,
+                    "JNI",
+                    "scip-jni-augment",
+                    &mut report.indexes,
+                    |path| {
+                        let opts = scip_jni_augment::AugmentOptions {
+                            source_root: std::env::current_dir().ok(),
+                            java_package: None,
+                            java_version: None,
+                        };
+                        Ok(match scip_jni_augment::augment_file(&dest, path, &opts)? {
+                            scip_jni_augment::AugmentOutcome::Written(stats) => {
+                                Some((stats.documents, stats.exports))
+                            }
+                            scip_jni_augment::AugmentOutcome::NoExports => None,
+                        })
+                    },
+                );
             }
         }
     }
@@ -1008,19 +1094,18 @@ pub fn run_scip_multi(
         return Err(Error::NoBuildSystemDetected);
     }
 
-    // Surface a failure if any indexer failed. The indexes that did succeed are
-    // already written to disk, so we keep them; we just report the error so the
-    // caller exits non-zero.
-    if let Some(e) = last_error {
+    // The indexes that did succeed are already written to disk, so we keep
+    // them; the failures travel back in the report for the caller to turn
+    // into a non-zero exit.
+    if !report.failures.is_empty() {
         log::warn!(
             "Generated {} of {} SCIP indexes; some build systems failed",
             indexed,
             attempted
         );
-        return Err(e);
     }
 
-    Ok(())
+    Ok(report)
 }
 
 #[cfg(test)]
