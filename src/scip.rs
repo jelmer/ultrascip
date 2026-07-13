@@ -370,23 +370,9 @@ fn index_cargo(
     output: &str,
 ) -> Result<Option<String>, Error> {
     // The config file goes next to the staged output (outside the project
-    // tree). `external_path` is resolved on the containing directory rather
-    // than the file, because it canonicalizes on plain sessions and the file
-    // does not exist yet.
+    // tree); `external_path` maps its session path to the host location.
     let config_path = format!("{}.ra-config.json", output);
-    let (config_dir, config_file) = {
-        let p = Path::new(&config_path);
-        match (p.parent(), p.file_name()) {
-            (Some(dir), Some(file)) if !dir.as_os_str().is_empty() => (dir, file),
-            _ => {
-                return Err(Error::Other(format!(
-                    "Output path has no parent directory: {}",
-                    output
-                )))
-            }
-        }
-    };
-    let external = session.external_path(config_dir).join(config_file);
+    let external = session.external_path(Path::new(&config_path));
     std::fs::write(&external, RUST_ANALYZER_SCIP_CONFIG).map_err(|e| {
         Error::Other(format!(
             "Failed to write rust-analyzer config {}: {}",
