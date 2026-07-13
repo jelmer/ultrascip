@@ -338,6 +338,72 @@ fn provide_release_indexer(session: &dyn Session, binary: &str) -> Result<Option
     Ok(Some(tag))
 }
 
+/// Indexers built from a git checkout with `cargo install --git`, because they
+/// are not published to any package registry the installer can resolve.
+///
+/// This has to run before `guaranteed_which`, which would otherwise resolve the
+/// binary through ognibuild's own mapping: `scip-python` there means
+/// Sourcegraph's npm package, not the Rust indexer we want.
+const CARGO_GIT_INDEXERS: &[CargoGitIndexer] = &[CargoGitIndexer {
+    binary: "scip-python",
+    repo: "https://github.com/jelmer/scip-python-rs",
+}];
+
+/// An indexer installed by building it from its git repository.
+struct CargoGitIndexer {
+    /// The session binary name this provides (and the key callers look up by).
+    binary: &'static str,
+    /// The git repository to build from.
+    repo: &'static str,
+}
+
+/// Build a git-hosted indexer into the session if it is not already on PATH.
+/// No-op for any other binary.
+///
+/// `cargo install --root /usr/local` puts the binary in `/usr/local/bin`, the
+/// same PATH location `provide_release_indexer` writes to. Cargo checks out the
+/// repository's submodules itself, so a project vendoring its dependencies that
+/// way builds without extra handling.
+fn provide_cargo_git_indexer(
+    session: &dyn Session,
+    installer: &dyn Installer,
+    fixers: &[&dyn BuildFixer<InstallerError>],
+    binary: &str,
+) -> Result<(), Error> {
+    let Some(indexer) = CARGO_GIT_INDEXERS
+        .iter()
+        .find(|indexer| indexer.binary == binary)
+    else {
+        return Ok(());
+    };
+    if ognibuild::session::which(session, binary).is_some() {
+        return Ok(());
+    }
+    // `cargo install` needs cargo itself, which is resolved via apt and so needs
+    // the full installer stack (see the matching note in `index_perl`).
+    let cargo = guaranteed_which(session, installer, "cargo")?;
+    log::info!("Building {} from {}", binary, indexer.repo);
+    run_fixing_problems::<_, Error>(
+        fixers,
+        None,
+        session,
+        &[
+            cargo.to_str().unwrap(),
+            "install",
+            "--git",
+            indexer.repo,
+            "--locked",
+            "--root",
+            "/usr/local",
+        ],
+        false,
+        None,
+        None,
+        None,
+    )?;
+    Ok(())
+}
+
 /// Run an indexer binary, resolving missing dependencies as it goes.
 ///
 /// Returns the indexer's release tag when it was downloaded as a release
@@ -350,6 +416,7 @@ fn run_index_command(
     args: &[&str],
 ) -> Result<Option<String>, Error> {
     let version = provide_release_indexer(session, binary)?;
+    provide_cargo_git_indexer(session, installer, fixers, binary)?;
     let binary_path = guaranteed_which(session, installer, binary)?;
     let mut argv = vec![binary_path.to_str().unwrap()];
     argv.extend_from_slice(args);
@@ -535,16 +602,17 @@ fn index_python(
     // scip-python crashes when it cannot determine the project name and version
     // itself (e.g. a dynamic version with no VCS metadata), so resolve them up
     // front via the project's PEP 517 wheel metadata and pass them explicitly.
-    let mut args = vec!["index", "--output", output];
+    let mut args = vec!["--output", output];
     let metadata = python_project_name_version(session);
     if let Some((name, version)) = metadata.as_ref() {
         args.extend(["--project-name", name, "--project-version", version]);
     } else {
         log::warn!(
             "Could not resolve Python project name/version; \
-             scip-python may fail to determine them itself"
+             scip-python will fall back to the directory name"
         );
     }
+    args.push(".");
     run_index_command(session, installer, fixers, "scip-python", &args)
 }
 
