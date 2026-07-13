@@ -24,6 +24,10 @@ When two build systems in a project map to the same language, the output file
 is disambiguated by appending the build system name (e.g. `cpp-meson.scip`
 alongside `cpp.scip`).
 
+Cargo projects are indexed with all cargo features enabled (rust-analyzer's
+`cargo.features = "all"`), so feature-gated code is covered rather than left
+to the tree-sitter pass.
+
 ## FFI companions
 
 Where a project exposes symbols across a language boundary, an extra SCIP
@@ -67,6 +71,16 @@ After the language indexers, two host-side tools run against the source tree:
 Both are required: if the tool is missing on `PATH` or exits non-zero, the
 run fails. Pass `--no-debian-lsp` / `--no-tree-sitter` to skip a pass on
 purpose.
+
+## Manifest
+
+A `manifest.json` is written into the output directory alongside the indexes.
+It records, per index file, what kind of producer wrote it (language indexer,
+FFI companion or post-pass), the build system and indexer it came from, and
+the indexer's release tag when one was downloaded during the run. Build
+systems whose indexer failed are listed under `failures`; the successful
+indexes are kept and the process exits non-zero. The manifest is written even
+when a pass fails, describing whatever did land in the output directory.
 
 ## Usage
 

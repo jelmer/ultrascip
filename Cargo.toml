@@ -19,6 +19,7 @@ log = "0.4"
 # Used by the inlined SCIP orchestrator (copied verbatim from
 # ognibuild/src/actions/scip.rs). Version ranges match ognibuild's own.
 reqwest = { version = ">=0.12.10, <0.14", features = ["blocking", "json"] }
+serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tar = "0.4"
 flate2 = "1"

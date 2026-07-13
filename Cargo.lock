@@ -2103,8 +2103,8 @@ dependencies = [
 
 [[package]]
 name = "ognibuild"
-version = "0.2.15"
-source = "git+https://github.com/jelmer/ognibuild.git#61bd88a4b9ced824ab1458445b9bc1f37e7bd3d0"
+version = "0.2.16"
+source = "git+https://github.com/jelmer/ognibuild.git#0d1e6717c463f10d1991a13457719cbf4ac93cf7"
 dependencies = [
  "apt-sources",
  "breezyshim",
@@ -2144,7 +2144,7 @@ dependencies = [
  "shlex 2.0.1",
  "tar",
  "tempfile",
- "toml 1.1.2+spec-1.1.0",
+ "toml",
  "toml_edit",
  "url",
  "whoami 2.1.2",
@@ -2441,7 +2441,7 @@ dependencies = [
  "pep508_rs",
  "serde",
  "thiserror 2.0.18",
- "toml 0.9.12+spec-1.1.0",
+ "toml",
 ]
 
 [[package]]
@@ -2512,9 +2512,9 @@ dependencies = [
 
 [[package]]
 name = "r-description"
-version = "0.3.7"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f97b1f65f8b0a2687d665c2d16e866f69c5c2f0486ccf905b776badacb3ebb53"
+checksum = "31a4cca5ad567b694e4fe874e0ee27aaa43cfb7540b3888fd134ac7774edc209"
 dependencies = [
  "deb822-derive",
  "deb822-fast",
@@ -3444,21 +3444,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "toml"
-version = "1.1.2+spec-1.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "81f3d15e84cbcd896376e6730314d59fb5a87f31e4b038454184435cd57defee"
-dependencies = [
- "indexmap",
- "serde_core",
- "serde_spanned",
- "toml_datetime 1.1.1+spec-1.1.0",
- "toml_parser",
- "toml_writer",
- "winnow 1.0.3",
-]
-
-[[package]]
 name = "toml_datetime"
 version = "0.7.5+spec-1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3643,6 +3628,7 @@ dependencies = [
  "scip-jni-augment",
  "scip-node-addon-augment",
  "scip-pyo3-augment",
+ "serde",
  "serde_json",
  "tar",
 ]
