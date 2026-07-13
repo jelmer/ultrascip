@@ -203,8 +203,8 @@ fn run(args: &Args) -> Result<(), RunError> {
     let scope = auto_installation_scope(session.as_ref());
     let installer: Box<dyn Installer> = auto_installer(session.as_ref(), scope, None);
 
-    // The InstallFixer is what turns "missing scip-python on PATH" into
-    // "install scip-python via npm and retry". Without it, indexers fail on
+    // The InstallFixer is what turns "missing scip-typescript on PATH" into
+    // "install scip-typescript via npm and retry". Without it, indexers fail on
     // the first missing tool.
     let install_fixer = ognibuild::fixers::InstallFixer::new(installer.as_ref(), scope);
     let fixers: Vec<&dyn BuildFixer<InstallerError>> = vec![&install_fixer];
