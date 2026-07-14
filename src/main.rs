@@ -20,6 +20,7 @@
 mod scip;
 
 mod manifest;
+mod version;
 
 use clap::Parser;
 use manifest::{IndexEntry, Manifest};
@@ -263,6 +264,9 @@ fn run(args: &Args) -> Result<(), RunError> {
 
     let post_result = run_post_passes(args, project.external_path(), &mut manifest);
 
+    // Summarize the per-index versions now that every pass has contributed.
+    manifest.collect_generators();
+
     // Write the manifest even when a pass failed: it describes whatever
     // indexes did land in the output directory.
     let manifest_path = args.output_all.join("manifest.json");
@@ -345,7 +349,11 @@ fn run_debian_lsp(source_dir: &Path, output_dir: &Path) -> Result<Option<IndexEn
             status
         )));
     }
-    Ok(Some(IndexEntry::post_pass("debian.scip", "debian-lsp")))
+    Ok(Some(IndexEntry::post_pass(
+        "debian.scip",
+        "debian-lsp",
+        version::probe_host("debian-lsp"),
+    )))
 }
 
 /// Run `makefile-lsp scip` on `debian/rules` to produce `makefile.scip`. No-op
@@ -377,7 +385,11 @@ fn run_makefile_lsp(source_dir: &Path, output_dir: &Path) -> Result<Option<Index
             status
         )));
     }
-    Ok(Some(IndexEntry::post_pass("makefile.scip", "makefile-lsp")))
+    Ok(Some(IndexEntry::post_pass(
+        "makefile.scip",
+        "makefile-lsp",
+        version::probe_host("makefile-lsp"),
+    )))
 }
 
 /// Run `scip-shell` on the source tree to produce `shell.scip`. Runs before
@@ -410,7 +422,11 @@ fn run_shell(
             status
         )));
     }
-    Ok(Some(IndexEntry::post_pass("shell.scip", "scip-shell")))
+    Ok(Some(IndexEntry::post_pass(
+        "shell.scip",
+        "scip-shell",
+        version::probe_host("scip-shell"),
+    )))
 }
 
 /// Run `scip-tree-sitter` to produce `tree-sitter.scip`, covering files no
@@ -449,6 +465,7 @@ fn run_tree_sitter(source_dir: &Path, output_dir: &Path) -> Result<Option<IndexE
     Ok(Some(IndexEntry::post_pass(
         "tree-sitter.scip",
         "scip-tree-sitter",
+        version::probe_host("scip-tree-sitter"),
     )))
 }
 
