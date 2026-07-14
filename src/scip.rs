@@ -652,6 +652,31 @@ enum Cpp<'a> {
     Make(&'a dyn BuildSystem),
 }
 
+/// How many compiler jobs the bear-wrapped build may run at once.
+///
+/// bear runs each compiler invocation under a wrapper that reports it to the
+/// bear intercept server over gRPC, and every wrapper is a gRPC client of some
+/// 24 threads. Let the build size itself from nproc and dozens hit that server
+/// at once, and it deadlocks: nothing is read, nothing times out, so the build
+/// neither finishes nor fails.
+const BEAR_MAX_JOBS: usize = 4;
+
+/// Environment for the bear-wrapped build, holding its concurrency to
+/// [`BEAR_MAX_JOBS`].
+///
+/// A build that computes its own job count and passes it explicitly honours
+/// neither variable and can still deadlock bear; the caller's per-package
+/// timeout is the backstop for that.
+fn bear_build_env() -> std::collections::HashMap<String, String> {
+    let jobs = BEAR_MAX_JOBS.to_string();
+    [
+        ("MAKEFLAGS".to_string(), format!("-j{jobs}")),
+        ("CMAKE_BUILD_PARALLEL_LEVEL".to_string(), jobs),
+    ]
+    .into_iter()
+    .collect()
+}
+
 fn index_clang(
     session: &dyn Session,
     installer: &dyn Installer,
@@ -737,7 +762,16 @@ fn index_clang(
             let make = guaranteed_which(session, installer, "make")?;
             let mut argv = vec![bear.to_str().unwrap(), "--", make.to_str().unwrap()];
             argv.extend_from_slice(ognibuild::buildsystems::make::NO_REGEN_MAKE_VARS);
-            run_fixing_problems::<_, Error>(fixers, None, session, &argv, false, None, None, None)?;
+            run_fixing_problems::<_, Error>(
+                fixers,
+                None,
+                session,
+                &argv,
+                false,
+                None,
+                None,
+                Some(&bear_build_env()),
+            )?;
             "compile_commands.json"
         }
     };
@@ -1224,6 +1258,18 @@ mod tests {
                 "--index-output-path",
                 "/out/cpp.scip"
             ]
+        );
+    }
+
+    #[test]
+    fn test_bear_build_env_caps_jobs() {
+        // An uncapped job count deadlocks bear's intercept server, and the build
+        // then hangs forever rather than failing.
+        let env = bear_build_env();
+        assert_eq!(env.get("MAKEFLAGS"), Some(&"-j4".to_string()));
+        assert_eq!(
+            env.get("CMAKE_BUILD_PARALLEL_LEVEL"),
+            Some(&"4".to_string())
         );
     }
 
