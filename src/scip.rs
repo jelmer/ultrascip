@@ -406,8 +406,11 @@ fn provide_cargo_git_indexer(
 
 /// Run an indexer binary, resolving missing dependencies as it goes.
 ///
-/// Returns the indexer's release tag when it was downloaded as a release
-/// binary for this run (see [`provide_release_indexer`]).
+/// Returns the indexer's version, which the manifest records so a consumer can
+/// tell when an index is stale. A release binary downloaded during this run
+/// reports the release tag it was fetched at (see [`provide_release_indexer`]);
+/// anything else is asked for its `--version`. None when the indexer cannot
+/// report one at all.
 fn run_index_command(
     session: &dyn Session,
     installer: &dyn Installer,
@@ -415,12 +418,21 @@ fn run_index_command(
     binary: &str,
     args: &[&str],
 ) -> Result<Option<String>, Error> {
-    let version = provide_release_indexer(session, binary)?;
+    let downloaded = provide_release_indexer(session, binary)?;
     provide_cargo_git_indexer(session, installer, fixers, binary)?;
     let binary_path = guaranteed_which(session, installer, binary)?;
     let mut argv = vec![binary_path.to_str().unwrap()];
     argv.extend_from_slice(args);
     run_fixing_problems::<_, Error>(fixers, None, session, &argv, false, None, None, None)?;
+    // The release tag is authoritative when we just downloaded the binary: it
+    // is what the GitHub API resolved, and some of these indexers report a
+    // different (or no) version through --version. Otherwise the binary came
+    // from a package manager, a cargo build or the base image, and only it
+    // knows its version.
+    let version = match downloaded {
+        Some(tag) => Some(crate::version::strip_tag_prefix(&tag)),
+        None => crate::version::probe_session(session, binary),
+    };
     Ok(version)
 }
 
