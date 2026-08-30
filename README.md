@@ -62,6 +62,11 @@ After the language indexers, several host-side tools run against the source tree
   writes `debian.scip` covering the Debian packaging files
   (`debian/control`, `debian/rules`, ...). Skipped for trees with no
   `debian/` subdirectory. Disable with `--no-debian-lsp`.
+- `makefile-lsp scip` (from
+  [makefile-lsp](https://github.com/jelmer/makefile-lsp)) writes
+  `makefile.scip` covering `debian/rules` plus every `Makefile`,
+  `GNUmakefile`, `makefile` and `*.mk` in the tree. Skipped when none are
+  found. Disable with `--no-makefile-lsp`.
 - [`scip-po`](https://crates.io/crates/scip-po) writes `po.scip` covering
   GNU gettext `.po`/`.pot` translation catalogs. Skipped for trees with no
   such files. Disable with `--no-po`.
@@ -106,6 +111,7 @@ Options:
   indexers need the network to install build deps, download release binaries,
   or resolve package registries.
 - `--no-debian-lsp` - skip the `debian-lsp scip` pass.
+- `--no-makefile-lsp` - skip the `makefile-lsp scip` pass.
 - `--no-po` - skip the `scip-po` pass.
 - `--no-tree-sitter` - skip the `scip-tree-sitter` pass.
 - `--debug` - verbose logging.
