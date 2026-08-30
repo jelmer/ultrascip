@@ -83,6 +83,12 @@ struct Args {
     #[arg(long)]
     no_shell: bool,
 
+    /// Skip the scip-po pass that produces po.scip from GNU gettext .po/.pot
+    /// files in the source tree. Off by default; the pass is skipped anyway
+    /// when the tree has no .po/.pot files.
+    #[arg(long)]
+    no_po: bool,
+
     /// Skip the scip-tree-sitter pass that produces tree-sitter.scip for
     /// files no other indexer covered. Off by default.
     #[arg(long)]
@@ -312,6 +318,16 @@ fn run_post_passes(
             manifest.indexes.push(entry);
         }
     }
+    if !args.no_po {
+        if let Some(entry) = run_po(
+            source_dir,
+            &args.output_all,
+            args.package_name.as_deref(),
+            args.package_version.as_deref(),
+        )? {
+            manifest.indexes.push(entry);
+        }
+    }
     if !args.no_tree_sitter {
         if let Some(entry) = run_tree_sitter(source_dir, &args.output_all)? {
             manifest.indexes.push(entry);
@@ -427,6 +443,81 @@ fn run_shell(
         "scip-shell",
         version::probe_host("scip-shell"),
     )))
+}
+
+/// Run `scip-po` on the source tree to produce `po.scip`. No-op when the tree
+/// has no `.po`/`.pot` files; a non-zero exit or missing binary is a hard
+/// error otherwise.
+fn run_po(
+    source_dir: &Path,
+    output_dir: &Path,
+    package_name: Option<&str>,
+    package_version: Option<&str>,
+) -> Result<Option<IndexEntry>, RunError> {
+    if !has_po_files(source_dir) {
+        log::debug!(
+            "No .po/.pot files in {}; skipping scip-po",
+            source_dir.display()
+        );
+        return Ok(None);
+    }
+    let output = output_dir.join("po.scip");
+    log::info!("Generating gettext .po SCIP index at {}", output.display());
+    let mut cmd = std::process::Command::new("scip-po");
+    cmd.arg("--project-root").arg(source_dir);
+    cmd.arg("--output").arg(&output);
+    if let Some(name) = package_name {
+        cmd.arg("--package-name").arg(name);
+    }
+    if let Some(version) = package_version {
+        cmd.arg("--package-version").arg(version);
+    }
+    cmd.arg(source_dir);
+    let status = cmd
+        .status()
+        .map_err(|e| RunError::Setup(format!("failed to run scip-po: {}", e)))?;
+    if !status.success() {
+        return Err(RunError::Setup(format!("scip-po exited with {}", status)));
+    }
+    Ok(Some(IndexEntry::post_pass(
+        "po.scip",
+        "scip-po",
+        version::probe_host("scip-po"),
+    )))
+}
+
+/// Does `source_dir` contain any `.po` or `.pot` file? Walks the tree until
+/// the first match; used to skip the scip-po pass on projects without
+/// translations.
+fn has_po_files(source_dir: &Path) -> bool {
+    let mut stack = vec![source_dir.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        let entries = match std::fs::read_dir(&dir) {
+            Ok(entries) => entries,
+            Err(_) => continue,
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let file_type = match entry.file_type() {
+                Ok(t) => t,
+                Err(_) => continue,
+            };
+            if file_type.is_dir() {
+                // Skip VCS metadata; a stray .po in .git/ would be a false
+                // positive and we would never index it anyway.
+                if entry.file_name() == ".git" {
+                    continue;
+                }
+                stack.push(path);
+            } else if file_type.is_file() {
+                let ext = path.extension().and_then(|s| s.to_str());
+                if matches!(ext, Some("po") | Some("pot")) {
+                    return true;
+                }
+            }
+        }
+    }
+    false
 }
 
 /// Run `scip-tree-sitter` to produce `tree-sitter.scip`, covering files no
