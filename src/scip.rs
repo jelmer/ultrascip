@@ -84,10 +84,19 @@ fn run_indexer(
             // so scip-clang on the generated C would not navigate the Vala
             // sources; index those with scip-vala instead. Fall back to
             // scip-clang for a plain C/C++ Meson project.
-            let meson = buildsystem
-                .as_any()
-                .downcast_ref::<ognibuild::buildsystems::meson::Meson>()
-                .expect("meson build system should downcast to Meson");
+            //
+            // The Meson passed in was probed with the project's *external* path
+            // (main.rs uses `project.external_path()` so `detect_buildsystems`
+            // can stat meson.build on the host). Inside an UnshareSession, that
+            // host path is not visible: `meson.build` lives at the *internal*
+            // path (e.g. `/build/tmp.XXX/package/`), and the ognibuild helpers
+            // this ends up calling (mkdir, --wd, ...) address the file system
+            // as seen from *inside* the session. Reconstruct Meson from the
+            // session's current internal cwd, which ultrascip has already
+            // chdir'd to the project root, so subsequent session ops address
+            // paths that actually exist in the chroot.
+            let meson =
+                ognibuild::buildsystems::meson::Meson::new(&session.pwd().join("meson.build"));
             let info = meson
                 .vala_index_info(session, Some(fixers))
                 .map_err(|e| Error::Other(format!("Failed to introspect Vala targets: {}", e)))?;
