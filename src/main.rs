@@ -73,8 +73,8 @@ struct Args {
     no_debian_lsp: bool,
 
     /// Skip the makefile-lsp pass that produces makefile.scip from
-    /// debian/rules. Off by default; the pass is skipped anyway when the
-    /// source tree has no debian/rules.
+    /// debian/rules and any Makefile / *.mk in the source tree. Off by
+    /// default; the pass is skipped anyway when no such files are found.
     #[arg(long)]
     no_makefile_lsp: bool,
 
@@ -82,6 +82,12 @@ struct Args {
     /// in the source tree. Off by default.
     #[arg(long)]
     no_shell: bool,
+
+    /// Skip the scip-po pass that produces po.scip from GNU gettext .po/.pot
+    /// files in the source tree. Off by default; the pass is skipped anyway
+    /// when the tree has no .po/.pot files.
+    #[arg(long)]
+    no_po: bool,
 
     /// Skip the scip-tree-sitter pass that produces tree-sitter.scip for
     /// files no other indexer covered. Off by default.
@@ -312,6 +318,16 @@ fn run_post_passes(
             manifest.indexes.push(entry);
         }
     }
+    if !args.no_po {
+        if let Some(entry) = run_po(
+            source_dir,
+            &args.output_all,
+            args.package_name.as_deref(),
+            args.package_version.as_deref(),
+        )? {
+            manifest.indexes.push(entry);
+        }
+    }
     if !args.no_tree_sitter {
         if let Some(entry) = run_tree_sitter(source_dir, &args.output_all)? {
             manifest.indexes.push(entry);
@@ -356,27 +372,39 @@ fn run_debian_lsp(source_dir: &Path, output_dir: &Path) -> Result<Option<IndexEn
     )))
 }
 
-/// Run `makefile-lsp scip` on `debian/rules` to produce `makefile.scip`. No-op
-/// when the tree has no `debian/rules` (upstream tarballs, non-Debian
-/// projects); a non-zero exit or missing binary is a hard error.
+/// Run `makefile-lsp scip` on `debian/rules` plus any Makefile / *.mk in the
+/// source tree, producing a combined `makefile.scip`. No-op when nothing
+/// matches; a non-zero exit or missing binary is a hard error otherwise.
 fn run_makefile_lsp(source_dir: &Path, output_dir: &Path) -> Result<Option<IndexEntry>, RunError> {
+    let mut inputs: Vec<PathBuf> = Vec::new();
     let rules = source_dir.join("debian/rules");
-    if !rules.is_file() {
+    if rules.is_file() {
+        inputs.push(rules);
+    }
+    collect_makefiles(source_dir, &mut inputs);
+    if inputs.is_empty() {
         log::debug!(
-            "No debian/rules in {}; skipping makefile-lsp",
+            "No Makefile or debian/rules in {}; skipping makefile-lsp",
             source_dir.display()
         );
         return Ok(None);
     }
     let output = output_dir.join("makefile.scip");
-    log::info!("Generating Makefile SCIP index at {}", output.display());
-    let status = std::process::Command::new("makefile-lsp")
-        .arg("scip")
+    log::info!(
+        "Generating Makefile SCIP index at {} ({} file(s))",
+        output.display(),
+        inputs.len()
+    );
+    let mut cmd = std::process::Command::new("makefile-lsp");
+    cmd.arg("scip")
         .arg("--project-root")
         .arg(source_dir)
         .arg("--output")
-        .arg(&output)
-        .arg(&rules)
+        .arg(&output);
+    for input in &inputs {
+        cmd.arg(input);
+    }
+    let status = cmd
         .status()
         .map_err(|e| RunError::Setup(format!("failed to run makefile-lsp: {}", e)))?;
     if !status.success() {
@@ -390,6 +418,49 @@ fn run_makefile_lsp(source_dir: &Path, output_dir: &Path) -> Result<Option<Index
         "makefile-lsp",
         version::probe_host("makefile-lsp"),
     )))
+}
+
+/// Walk `source_dir` and append every Makefile / GNUmakefile / *.mk found to
+/// `out`. Skips VCS metadata and common build-output directories so we do not
+/// re-index generated Makefiles under target/ or build/.
+fn collect_makefiles(source_dir: &Path, out: &mut Vec<PathBuf>) {
+    let mut stack = vec![source_dir.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        let entries = match std::fs::read_dir(&dir) {
+            Ok(entries) => entries,
+            Err(_) => continue,
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let file_type = match entry.file_type() {
+                Ok(t) => t,
+                Err(_) => continue,
+            };
+            if file_type.is_dir() {
+                let name = entry.file_name();
+                if matches!(
+                    name.to_str(),
+                    Some(".git" | ".hg" | ".svn" | "target" | "build" | "node_modules")
+                ) {
+                    continue;
+                }
+                stack.push(path);
+            } else if file_type.is_file() && is_makefile(&path) {
+                out.push(path);
+            }
+        }
+    }
+}
+
+/// Is `path` one of the file names GNU make recognizes as a makefile, or a
+/// `*.mk` fragment? Excludes `debian/rules`, which the caller adds explicitly.
+fn is_makefile(path: &Path) -> bool {
+    if let Some(name) = path.file_name().and_then(|s| s.to_str()) {
+        if matches!(name, "Makefile" | "makefile" | "GNUmakefile") {
+            return true;
+        }
+    }
+    matches!(path.extension().and_then(|s| s.to_str()), Some("mk"))
 }
 
 /// Run `scip-shell` on the source tree to produce `shell.scip`. Runs before
@@ -427,6 +498,81 @@ fn run_shell(
         "scip-shell",
         version::probe_host("scip-shell"),
     )))
+}
+
+/// Run `scip-po` on the source tree to produce `po.scip`. No-op when the tree
+/// has no `.po`/`.pot` files; a non-zero exit or missing binary is a hard
+/// error otherwise.
+fn run_po(
+    source_dir: &Path,
+    output_dir: &Path,
+    package_name: Option<&str>,
+    package_version: Option<&str>,
+) -> Result<Option<IndexEntry>, RunError> {
+    if !has_po_files(source_dir) {
+        log::debug!(
+            "No .po/.pot files in {}; skipping scip-po",
+            source_dir.display()
+        );
+        return Ok(None);
+    }
+    let output = output_dir.join("po.scip");
+    log::info!("Generating gettext .po SCIP index at {}", output.display());
+    let mut cmd = std::process::Command::new("scip-po");
+    cmd.arg("--project-root").arg(source_dir);
+    cmd.arg("--output").arg(&output);
+    if let Some(name) = package_name {
+        cmd.arg("--package-name").arg(name);
+    }
+    if let Some(version) = package_version {
+        cmd.arg("--package-version").arg(version);
+    }
+    cmd.arg(source_dir);
+    let status = cmd
+        .status()
+        .map_err(|e| RunError::Setup(format!("failed to run scip-po: {}", e)))?;
+    if !status.success() {
+        return Err(RunError::Setup(format!("scip-po exited with {}", status)));
+    }
+    Ok(Some(IndexEntry::post_pass(
+        "po.scip",
+        "scip-po",
+        version::probe_host("scip-po"),
+    )))
+}
+
+/// Does `source_dir` contain any `.po` or `.pot` file? Walks the tree until
+/// the first match; used to skip the scip-po pass on projects without
+/// translations.
+fn has_po_files(source_dir: &Path) -> bool {
+    let mut stack = vec![source_dir.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        let entries = match std::fs::read_dir(&dir) {
+            Ok(entries) => entries,
+            Err(_) => continue,
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let file_type = match entry.file_type() {
+                Ok(t) => t,
+                Err(_) => continue,
+            };
+            if file_type.is_dir() {
+                // Skip VCS metadata; a stray .po in .git/ would be a false
+                // positive and we would never index it anyway.
+                if entry.file_name() == ".git" {
+                    continue;
+                }
+                stack.push(path);
+            } else if file_type.is_file() {
+                let ext = path.extension().and_then(|s| s.to_str());
+                if matches!(ext, Some("po") | Some("pot")) {
+                    return true;
+                }
+            }
+        }
+    }
+    false
 }
 
 /// Run `scip-tree-sitter` to produce `tree-sitter.scip`, covering files no
@@ -481,4 +627,81 @@ fn install_apt_build_deps(session: &dyn Session, external_dir: &Path) -> Result<
     log::info!("Installing Debian Build-Depends from {}", control.display());
     ognibuild::debian::satisfy_build_deps_from_control(session, &control)
         .map_err(|e| Error::Other(e.to_string()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_is_makefile() {
+        assert!(is_makefile(Path::new("Makefile")));
+        assert!(is_makefile(Path::new("makefile")));
+        assert!(is_makefile(Path::new("GNUmakefile")));
+        assert!(is_makefile(Path::new("sub/Makefile")));
+        assert!(is_makefile(Path::new("rules.mk")));
+        assert!(is_makefile(Path::new("a/b/config.mk")));
+        // debian/rules is not a Makefile by name; caller adds it explicitly.
+        assert!(!is_makefile(Path::new("debian/rules")));
+        assert!(!is_makefile(Path::new("README.md")));
+        assert!(!is_makefile(Path::new("Cargo.toml")));
+    }
+
+    #[test]
+    fn test_collect_makefiles() {
+        let base = std::env::temp_dir().join(format!(
+            "ultrascip-collect-makefiles-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&base);
+        // Layout with one of each accepted name, a *.mk under a subdir, and
+        // excluded paths (target/, .git/) that must not be picked up.
+        for (rel, is_dir) in [
+            ("Makefile", false),
+            ("sub", true),
+            ("sub/GNUmakefile", false),
+            ("sub/rules.mk", false),
+            ("target", true),
+            ("target/Makefile", false),
+            (".git", true),
+            (".git/Makefile", false),
+            ("node_modules", true),
+            ("node_modules/pkg/Makefile", false),
+            ("README.md", false),
+        ] {
+            let p = base.join(rel);
+            if is_dir {
+                std::fs::create_dir_all(&p).unwrap();
+            } else {
+                if let Some(parent) = p.parent() {
+                    std::fs::create_dir_all(parent).unwrap();
+                }
+                std::fs::write(&p, b"").unwrap();
+            }
+        }
+
+        let mut found: Vec<PathBuf> = Vec::new();
+        collect_makefiles(&base, &mut found);
+        let mut relative: Vec<String> = found
+            .iter()
+            .map(|p| {
+                p.strip_prefix(&base)
+                    .unwrap()
+                    .to_string_lossy()
+                    .replace('\\', "/")
+            })
+            .collect();
+        relative.sort();
+
+        std::fs::remove_dir_all(&base).ok();
+
+        assert_eq!(
+            relative,
+            vec![
+                "Makefile".to_string(),
+                "sub/GNUmakefile".to_string(),
+                "sub/rules.mk".to_string(),
+            ]
+        );
+    }
 }

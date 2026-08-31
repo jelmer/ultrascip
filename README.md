@@ -56,21 +56,28 @@ Gradle 4.9+ APIs but Debian ships 4.4.1. Maven works.
 
 ## Post-indexing passes
 
-After the language indexers, two host-side tools run against the source tree:
+After the language indexers, several host-side tools run against the source tree:
 
 - `debian-lsp scip` (from [debian-lsp](https://github.com/jelmer/debian-lsp))
   writes `debian.scip` covering the Debian packaging files
   (`debian/control`, `debian/rules`, ...). Skipped for trees with no
   `debian/` subdirectory. Disable with `--no-debian-lsp`.
+- `makefile-lsp scip` (from
+  [makefile-lsp](https://github.com/jelmer/makefile-lsp)) writes
+  `makefile.scip` covering `debian/rules` plus every `Makefile`,
+  `GNUmakefile`, `makefile` and `*.mk` in the tree. Skipped when none are
+  found. Disable with `--no-makefile-lsp`.
+- [`scip-po`](https://crates.io/crates/scip-po) writes `po.scip` covering
+  GNU gettext `.po`/`.pot` translation catalogs. Skipped for trees with no
+  such files. Disable with `--no-po`.
 - `scip-tree-sitter` (from
   [scip-tools](https://github.com/jelmer/scip-tools)) writes
   `tree-sitter.scip` with syntax-highlighting tokens for files no language
   indexer covered, deferring to every other `.scip` in the output directory
   via `--exclude-scip`. Disable with `--no-tree-sitter`.
 
-Both are required: if the tool is missing on `PATH` or exits non-zero, the
-run fails. Pass `--no-debian-lsp` / `--no-tree-sitter` to skip a pass on
-purpose.
+If a pass' tool is missing on `PATH` or exits non-zero, the run fails. Pass
+the matching `--no-*` flag to skip a pass on purpose.
 
 ## Manifest
 
@@ -87,7 +94,7 @@ when a pass fails, describing whatever did land in the output directory.
 ```
 ultrascip --output-all OUT_DIR --session SESSION [--directory DIR]
           [--apt-build-deps] [--offline] [--no-debian-lsp]
-          [--no-tree-sitter] [--debug]
+          [--no-po] [--no-tree-sitter] [--debug]
 ```
 
 Options:
@@ -104,6 +111,8 @@ Options:
   indexers need the network to install build deps, download release binaries,
   or resolve package registries.
 - `--no-debian-lsp` - skip the `debian-lsp scip` pass.
+- `--no-makefile-lsp` - skip the `makefile-lsp scip` pass.
+- `--no-po` - skip the `scip-po` pass.
 - `--no-tree-sitter` - skip the `scip-tree-sitter` pass.
 - `--debug` - verbose logging.
 
